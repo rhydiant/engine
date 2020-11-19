@@ -11,6 +11,7 @@ import 'package:test/test.dart';
 import 'package:ui/ui.dart' as ui;
 import 'package:ui/src/engine.dart';
 
+import '../matchers.dart';
 import 'common.dart';
 
 void main() {
@@ -49,7 +50,7 @@ void _tests() {
       when(mockRasterizer.addPostFrameCallback(any)).thenAnswer((_) {
         addPostFrameCallbackCount++;
       });
-      window.rasterizer = mockRasterizer;
+      EnginePlatformDispatcher.instance.rasterizer = mockRasterizer;
 
       // Trigger first create
       final TestSkiaObject testObject = TestSkiaObject();
@@ -153,9 +154,94 @@ void _tests() {
       expect(SkiaObjects.oneShotCache.debugContains(object2), isFalse);
     });
   });
+
+  group(SkiaObjectBox, () {
+    test('Records stack traces and respects refcounts', () async {
+      TestSkDeletable.deleteCount = 0;
+      final TestBoxWrapper original = TestBoxWrapper();
+
+      expect(original.box.debugGetStackTraces().length, 1);
+      expect(original.box.refCount, 1);
+      expect(original.box.isDeleted, false);
+
+      final TestBoxWrapper clone = original.clone();
+      expect(clone.box, same(original.box));
+      expect(clone.box.debugGetStackTraces().length, 2);
+      expect(clone.box.refCount, 2);
+      expect(original.box.debugGetStackTraces().length, 2);
+      expect(original.box.refCount, 2);
+      expect(original.box.isDeleted, false);
+
+      original.dispose();
+
+      // Let Skia object delete queue run.
+      await Future<void>.delayed(Duration.zero);
+      expect(TestSkDeletable.deleteCount, 0);
+
+      expect(clone.box.debugGetStackTraces().length, 1);
+      expect(clone.box.refCount, 1);
+      expect(original.box.debugGetStackTraces().length, 1);
+      expect(original.box.refCount, 1);
+
+      clone.dispose();
+
+      // Let Skia object delete queue run.
+      await Future<void>.delayed(Duration.zero);
+      expect(TestSkDeletable.deleteCount, 1);
+
+      expect(clone.box.debugGetStackTraces().length, 0);
+      expect(clone.box.refCount, 0);
+      expect(original.box.debugGetStackTraces().length, 0);
+      expect(original.box.refCount, 0);
+      expect(original.box.isDeleted, true);
+
+      expect(() => clone.box.unref(clone), throwsAssertionError);
+    });
+  });
 }
 
-class TestOneShotSkiaObject extends OneShotSkiaObject<SkPaint> {
+/// A simple class that wraps a [SkiaObjectBox].
+///
+/// Can be [clone]d such that the clones share the same ref counted box.
+class TestBoxWrapper implements StackTraceDebugger {
+  TestBoxWrapper() {
+    if (assertionsEnabled) {
+      _debugStackTrace = StackTrace.current;
+    }
+    box = SkiaObjectBox<TestBoxWrapper, TestSkDeletable>(this, TestSkDeletable());
+  }
+
+  TestBoxWrapper.cloneOf(this.box) {
+    if (assertionsEnabled) {
+      _debugStackTrace = StackTrace.current;
+    }
+    box.ref(this);
+  }
+
+  @override
+  StackTrace get debugStackTrace => _debugStackTrace;
+  StackTrace _debugStackTrace;
+
+  SkiaObjectBox<TestBoxWrapper, TestSkDeletable> box;
+
+  void dispose() {
+    box.unref(this);
+  }
+
+  TestBoxWrapper clone() => TestBoxWrapper.cloneOf(box);
+}
+
+
+class TestSkDeletable implements SkDeletable {
+  static int deleteCount = 0;
+
+  @override
+  void delete() {
+    deleteCount++;
+  }
+}
+
+class TestOneShotSkiaObject extends OneShotSkiaObject<SkPaint> implements SkDeletable {
   static int deleteCount = 0;
 
   TestOneShotSkiaObject() : super(SkPaint());

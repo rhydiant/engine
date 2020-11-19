@@ -1,7 +1,6 @@
 // Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-// FLUTTER_NOLINT
 
 #import "flutter/shell/platform/darwin/macos/framework/Headers/FlutterViewController.h"
 #import "flutter/shell/platform/darwin/macos/framework/Source/FlutterViewController_Internal.h"
@@ -240,13 +239,13 @@ static void CommonInit(FlutterViewController* controller) {
 }
 
 - (void)loadView {
-  NSOpenGLContext* resourceContext = _engine.resourceContext;
-  if (!resourceContext) {
-    NSLog(@"Unable to create FlutterView; no resource context available.");
+  NSOpenGLContext* mainContext = _engine.openGLRenderer.openGLContext;
+  if (!mainContext) {
+    NSLog(@"Unable to create FlutterView; no GL context available.");
     return;
   }
-  FlutterView* flutterView = [[FlutterView alloc] initWithShareContext:resourceContext
-                                                       reshapeListener:self];
+  FlutterView* flutterView = [[FlutterView alloc] initWithMainContext:mainContext
+                                                      reshapeListener:self];
   self.view = flutterView;
 }
 

@@ -19,6 +19,15 @@ part of dart.ui;
 // which can not be rendered by Skia.
 
 // Update this list when changing the list of supported codecs.
+/// {@template dart.ui.imageFormats}
+/// JPEG, PNG, GIF, Animated GIF, WebP, Animated WebP, BMP, and WBMP. Additional
+/// formats may be supported by the underlying platform. Flutter will
+/// attempt to call platform API to decode unrecognized formats, and if the
+/// platform API supports decoding the image Flutter will be able to render it.
+/// {@endtemplate}
+
+// TODO(gspencergoog): remove this template block once the framework templates
+// are renamed to not reference it.
 /// {@template flutter.dart:ui.imageFormats}
 /// JPEG, PNG, GIF, Animated GIF, WebP, Animated WebP, BMP, and WBMP. Additional
 /// formats may be supported by the underlying platform. Flutter will
@@ -1566,27 +1575,84 @@ enum PixelFormat {
 /// To draw an [Image], use one of the methods on the [Canvas] class, such as
 /// [Canvas.drawImage].
 ///
+/// A class or method that receives an image object must call [dispose] on the
+/// handle when it is no longer needed. To create a shareable reference to the
+/// underlying image, call [clone]. The method or object that recieves
+/// the new instance will then be responsible for disposing it, and the
+/// underlying image itself will be disposed when all outstanding handles are
+/// disposed.
+///
+/// If `dart:ui` passes an `Image` object and the recipient wishes to share
+/// that handle with other callers, [clone] must be called _before_ [dispose].
+/// A handle that has been disposed cannot create new handles anymore.
+///
 /// See also:
 ///
 ///  * [Image](https://api.flutter.dev/flutter/widgets/Image-class.html), the class in the [widgets] library.
 ///  * [ImageDescriptor], which allows reading information about the image and
 ///    creating a codec to decode it.
 ///  * [instantiateImageCodec], a utility method that wraps [ImageDescriptor].
-///
-@pragma('vm:entry-point')
-class Image extends NativeFieldWrapperClass2 {
-  // This class is created by the engine, and should not be instantiated
-  // or extended directly.
-  //
-  // To obtain an [Image] object, use [instantiateImageCodec].
+class Image {
+  Image._(this._image) {
+    assert(() {
+      _debugStack = StackTrace.current;
+      return true;
+    }());
+    _image._handles.add(this);
+  }
+
+  // C++ unit tests access this.
   @pragma('vm:entry-point')
-  Image._();
+  final _Image _image;
+
+  StackTrace? _debugStack;
 
   /// The number of image pixels along the image's horizontal axis.
-  int get width native 'Image_width';
+  int get width {
+    assert(!_disposed && !_image._disposed);
+    return _image.width;
+  }
 
   /// The number of image pixels along the image's vertical axis.
-  int get height native 'Image_height';
+  int get height {
+    assert(!_disposed && !_image._disposed);
+    return _image.height;
+  }
+
+  bool _disposed = false;
+  /// Release this handle's claim on the underlying Image. This handle is no
+  /// longer usable after this method is called.
+  ///
+  /// Once all outstanding handles have been disposed, the underlying image will
+  /// be disposed as well.
+  ///
+  /// In debug mode, [debugGetOpenHandleStackTraces] will return a list of
+  /// [StackTrace] objects from all open handles' creation points. This is
+  /// useful when trying to determine what parts of the program are keeping an
+  /// image resident in memory.
+  void dispose() {
+    assert(!_disposed && !_image._disposed);
+    assert(_image._handles.contains(this));
+    _disposed = true;
+    final bool removed = _image._handles.remove(this);
+    assert(removed);
+    if (_image._handles.isEmpty) {
+      _image.dispose();
+    }
+  }
+
+  /// Whether this reference to the underlying image is [dispose]d.
+  ///
+  /// This only returns a valid value if asserts are enabled, and must not be
+  /// used otherwise.
+  bool get debugDisposed {
+    bool? disposed;
+    assert(() {
+      disposed = _disposed;
+      return true;
+    }());
+    return disposed ?? (throw StateError('Image.debugDisposed is only available when asserts are enabled.'));
+  }
 
   /// Converts the [Image] object into a byte array.
   ///
@@ -1595,6 +1661,140 @@ class Image extends NativeFieldWrapperClass2 {
   ///
   /// Returns a future that completes with the binary image data or an error
   /// if encoding fails.
+  Future<ByteData?> toByteData({ImageByteFormat format = ImageByteFormat.rawRgba}) {
+    assert(!_disposed && !_image._disposed);
+    return _image.toByteData(format: format);
+  }
+
+  /// If asserts are enabled, returns the [StackTrace]s of each open handle from
+  /// [clone], in creation order.
+  ///
+  /// If asserts are disabled, this method always returns null.
+  List<StackTrace>? debugGetOpenHandleStackTraces() {
+    List<StackTrace>? stacks;
+    assert(() {
+      stacks = _image._handles.map((Image handle) => handle._debugStack!).toList();
+      return true;
+    }());
+    return stacks;
+  }
+
+  /// Creates a disposable handle to this image.
+  ///
+  /// Holders of an [Image] must dispose of the image when they no longer need
+  /// to access it or draw it. However, once the underlying image is disposed,
+  /// it is no longer possible to use it. If a holder of an image needs to share
+  /// access to that image with another object or method, [clone] creates a
+  /// duplicate handle. The underlying image will only be disposed once all
+  /// outstanding handles are disposed. This allows for safe sharing of image
+  /// references while still disposing of the underlying resources when all
+  /// consumers are finished.
+  ///
+  /// It is safe to pass an [Image] handle to another object or method if the
+  /// current holder no longer needs it.
+  ///
+  /// To check whether two [Image] references are refering to the same
+  /// underlying image memory, use [isCloneOf] rather than the equality operator
+  /// or [identical].
+  ///
+  /// The following example demonstrates valid usage.
+  ///
+  /// ```dart
+  /// import 'dart:async';
+  ///
+  /// Future<Image> _loadImage(int width, int height) {
+  ///   final Completer<Image> completer = Completer<Image>();
+  ///   decodeImageFromPixels(
+  ///     Uint8List.fromList(List<int>.filled(width * height * 4, 0xFF)),
+  ///     width,
+  ///     height,
+  ///     PixelFormat.rgba8888,
+  ///     // Don't worry about disposing or cloning this image - responsibility
+  ///     // is transferred to the caller, and that is safe since this method
+  ///     // will not touch it again.
+  ///     (Image image) => completer.complete(image),
+  ///   );
+  ///   return completer.future;
+  /// }
+  ///
+  /// Future<void> main() async {
+  ///   final Image image = await _loadImage(5, 5);
+  ///   // Make sure to clone the image, because MyHolder might dispose it
+  ///   // and we need to access it again.
+  ///   final MyImageHolder holder = MyImageHolder(image.clone());
+  ///   final MyImageHolder holder2 = MyImageHolder(image.clone());
+  ///   // Now we dispose it because we won't need it again.
+  ///   image.dispose();
+  ///
+  ///   final PictureRecorder recorder = PictureRecorder();
+  ///   final Canvas canvas = Canvas(recorder);
+  ///
+  ///   holder.draw(canvas);
+  ///   holder.dispose();
+  ///
+  ///   canvas.translate(50, 50);
+  ///   holder2.draw(canvas);
+  ///   holder2.dispose();
+  /// }
+  ///
+  /// class MyImageHolder {
+  ///   MyImageLoader(this.image);
+  ///
+  ///   final Image image;
+  ///
+  ///   void draw(Canvas canvas) {
+  ///     canvas.drawImage(image, Offset.zero, Paint());
+  ///   }
+  ///
+  ///   void dispose() => image.dispose();
+  /// }
+  /// ```
+  ///
+  /// The returned object behaves identically to this image. Calling
+  /// [dispose] on it will only dispose the underlying native resources if it
+  /// is the last remaining handle.
+  Image clone() {
+    if (_disposed) {
+      throw StateError(
+        'Cannot clone a disposed image.\n'
+        'The clone() method of a previously-disposed Image was called. Once an '
+        'Image object has been disposed, it can no longer be used to create '
+        'handles, as the underlying data may have been released.'
+      );
+    }
+    assert(!_image._disposed);
+    return Image._(_image);
+  }
+
+  /// Returns true if `other` is a [clone] of this and thus shares the same
+  /// underlying image memory, even if this or `other` is [dispose]d.
+  ///
+  /// This method may return false for two images that were decoded from the
+  /// same underlying asset, if they are not sharing the same memory. For
+  /// example, if the same file is decoded using [instantiateImageCodec] twice,
+  /// or the same bytes are decoded using [decodeImageFromPixels] twice, there
+  /// will be two distinct [Image]s that render the same but do not share
+  /// underlying memory, and so will not be treated as clones of each other.
+  bool isCloneOf(Image other) => other._image == _image;
+
+  @override
+  String toString() => _image.toString();
+}
+
+@pragma('vm:entry-point')
+class _Image extends NativeFieldWrapperClass2 {
+  // This class is created by the engine, and should not be instantiated
+  // or extended directly.
+  //
+  // _Images are always handed out wrapped in [Image]s. To create an [Image],
+  // use the ImageDescriptor API.
+  @pragma('vm:entry-point')
+  _Image._();
+
+  int get width native 'Image_width';
+
+  int get height native 'Image_height';
+
   Future<ByteData?> toByteData({ImageByteFormat format = ImageByteFormat.rawRgba}) {
     return _futurize((_Callback<ByteData> callback) {
       return _toByteData(format.index, (Uint8List? encoded) {
@@ -1606,9 +1806,23 @@ class Image extends NativeFieldWrapperClass2 {
   /// Returns an error message on failure, null on success.
   String? _toByteData(int format, _Callback<Uint8List?> callback) native 'Image_toByteData';
 
-  /// Release the resources used by this object. The object is no longer usable
-  /// after this method is called.
-  void dispose() native 'Image_dispose';
+  bool _disposed = false;
+  void dispose() {
+    assert(!_disposed);
+    assert(
+      _handles.isEmpty,
+      'Attempted to dispose of an Image object that has ${_handles.length} '
+      'open handles.\n'
+      'If you see this, it is a bug in dart:ui. Please file an issue at '
+      'https://github.com/flutter/flutter/issues/new.',
+    );
+    _disposed = true;
+    _dispose();
+  }
+
+  void _dispose() native 'Image_dispose';
+
+  Set<Image> _handles = <Image>{};
 
   @override
   String toString() => '[$width\u00D7$height]';
@@ -1621,22 +1835,65 @@ typedef ImageDecoderCallback = void Function(Image result);
 ///
 /// To obtain an instance of the [FrameInfo] interface, see
 /// [Codec.getNextFrame].
-@pragma('vm:entry-point')
-class FrameInfo extends NativeFieldWrapperClass2 {
+///
+/// The recipient of an instance of this class is responsible for calling
+/// [Image.dispose] on [image]. To share the image with other interested
+/// parties, use [Image.clone]. If the [FrameInfo] object itself is passed to
+/// another method or object, that method or object must assume it is
+/// responsible for disposing the image when done, and the passer must not
+/// access the [image] after that point.
+///
+/// For example, the following code sample is incorrect:
+///
+/// ```dart
+/// /// BAD
+/// Future<void> nextFrameRoutine(Codec codec) async {
+///   final FrameInfo frameInfo = await codec.getNextFrame();
+///   _cacheImage(frameInfo);
+///   // ERROR - _cacheImage is now responsible for disposing the image, and
+///   // the image may not be available any more for this drawing routine.
+///   _drawImage(frameInfo);
+///   // ERROR again - the previous methods might or might not have created
+///   // handles to the image.
+///   frameInfo.image.dispose();
+/// }
+/// ```
+///
+/// Correct usage is:
+///
+/// ```dart
+/// /// GOOD
+/// Future<void> nextFrameRoutine(Codec codec) async {
+///   final FrameInfo frameInfo = await codec.getNextFrame();
+///   _cacheImage(frameInfo.image.clone(), frameInfo.duration);
+///   _drawImage(frameInfo.image.clone(), frameInfo.duration);
+///   // This method is done with its handle, and has passed handles to its
+///   // clients already.
+///   // The image will live until those clients dispose of their handles, and
+///   // this one must not be disposed since it will not be used again.
+///   frameInfo.image.dispose();
+/// }
+/// ```
+class FrameInfo {
   /// This class is created by the engine, and should not be instantiated
   /// or extended directly.
   ///
   /// To obtain an instance of the [FrameInfo] interface, see
   /// [Codec.getNextFrame].
-  @pragma('vm:entry-point')
-  FrameInfo._();
+  FrameInfo._({required this.duration, required this.image});
 
   /// The duration this frame should be shown.
-  Duration get duration => Duration(milliseconds: _durationMillis);
-  int get _durationMillis native 'FrameInfo_durationMillis';
+  ///
+  /// A zero duration indicates that the frame should be shown indefinitely.
+  final Duration duration;
+
 
   /// The [Image] object for this frame.
-  Image get image native 'FrameInfo_image';
+  ///
+  /// This object must be disposed by the recipient of this frame info.
+  ///
+  /// To share this image with other interested parties, use [Image.clone].
+  final Image image;
 }
 
 /// A handle to an image codec.
@@ -1657,26 +1914,46 @@ class Codec extends NativeFieldWrapperClass2 {
   @pragma('vm:entry-point')
   Codec._();
 
+  int? _cachedFrameCount;
   /// Number of frames in this image.
-  int get frameCount native 'Codec_frameCount';
+  int get frameCount => _cachedFrameCount ??= _frameCount;
+  int get _frameCount native 'Codec_frameCount';
 
+  int? _cachedRepetitionCount;
   /// Number of times to repeat the animation.
   ///
   /// * 0 when the animation should be played once.
   /// * -1 for infinity repetitions.
-  int get repetitionCount native 'Codec_repetitionCount';
+  int get repetitionCount => _cachedRepetitionCount ??= _repetitionCount;
+  int get _repetitionCount native 'Codec_repetitionCount';
 
   /// Fetches the next animation frame.
   ///
   /// Wraps back to the first frame after returning the last frame.
   ///
   /// The returned future can complete with an error if the decoding has failed.
-  Future<FrameInfo> getNextFrame() {
-    return _futurize(_getNextFrame);
+  ///
+  /// The caller of this method is responsible for disposing the
+  /// [FrameInfo.image] on the returned object.
+  Future<FrameInfo> getNextFrame() async {
+    final Completer<FrameInfo> completer = Completer<FrameInfo>.sync();
+    final String? error = _getNextFrame((_Image? image, int durationMilliseconds) {
+      if (image == null) {
+        throw Exception('Codec failed to produce an image, possibly due to invalid image data.');
+      }
+      completer.complete(FrameInfo._(
+        image: Image._(image),
+        duration: Duration(milliseconds: durationMilliseconds),
+      ));
+    });
+    if (error != null) {
+      throw Exception(error);
+    }
+    return await completer.future;
   }
 
   /// Returns an error message on failure, null on success.
-  String _getNextFrame(_Callback<FrameInfo> callback) native 'Codec_getNextFrame';
+  String? _getNextFrame(void Function(_Image?, int) callback) native 'Codec_getNextFrame';
 
   /// Release the resources used by this object. The object is no longer usable
   /// after this method is called.
@@ -1692,7 +1969,7 @@ class Codec extends NativeFieldWrapperClass2 {
 ///
 /// The `list` parameter is the binary image data (e.g a PNG or GIF binary data).
 /// The data can be for either static or animated images. The following image
-/// formats are supported: {@macro flutter.dart:ui.imageFormats}
+/// formats are supported: {@macro dart.ui.imageFormats}
 ///
 /// The `targetWidth` and `targetHeight` arguments specify the size of the
 /// output image, in image pixels. If they are not equal to the intrinsic
@@ -2467,12 +2744,11 @@ class PathMetric {
     return _measure.getTangentForOffset(contourIndex, distance);
   }
 
-  /// Given a start and stop distance, return the intervening segment(s).
+  /// Given a start and end distance, return the intervening segment(s).
   ///
   /// `start` and `end` are clamped to legal values (0..[length])
-  /// Returns null if the segment is 0 length or `start` > `stop`.
   /// Begin the segment with a moveTo if `startWithMoveTo` is true.
-  Path? extractPath(double start, double end, {bool startWithMoveTo = true}) {
+  Path extractPath(double start, double end, {bool startWithMoveTo = true}) {
     return _measure.extractPath(contourIndex, start, end, startWithMoveTo: startWithMoveTo);
   }
 
@@ -2624,7 +2900,7 @@ class MaskFilter {
 ///
 /// Instances of this class are used with [Paint.colorFilter] on [Paint]
 /// objects.
-class ColorFilter {
+class ColorFilter implements ImageFilter {
   /// Creates a color filter that applies the blend mode given as the second
   /// argument. The source color is the one given as the first argument, and the
   /// destination color is the one from the layer being composited.
@@ -2636,7 +2912,7 @@ class ColorFilter {
       : _color = color,
         _blendMode = blendMode,
         _matrix = null,
-        _type = _TypeMode;
+        _type = _kTypeMode;
 
   /// Construct a color filter that transforms a color by a 5x5 matrix, where
   /// the fifth row is implicitly added in an identity configuration.
@@ -2702,7 +2978,7 @@ class ColorFilter {
       : _color = null,
         _blendMode = null,
         _matrix = matrix,
-        _type = _TypeMatrix;
+        _type = _kTypeMatrix;
 
   /// Construct a color filter that applies the sRGB gamma curve to the RGB
   /// channels.
@@ -2710,7 +2986,7 @@ class ColorFilter {
       : _color = null,
         _blendMode = null,
         _matrix = null,
-        _type = _TypeLinearToSrgbGamma;
+        _type = _kTypeLinearToSrgbGamma;
 
   /// Creates a color filter that applies the inverse of the sRGB gamma curve
   /// to the RGB channels.
@@ -2718,7 +2994,7 @@ class ColorFilter {
       : _color = null,
         _blendMode = null,
         _matrix = null,
-        _type = _TypeSrgbToLinearGamma;
+        _type = _kTypeSrgbToLinearGamma;
 
   final Color? _color;
   final BlendMode? _blendMode;
@@ -2726,36 +3002,31 @@ class ColorFilter {
   final int _type;
 
   // The type of SkColorFilter class to create for Skia.
-  static const int _TypeMode = 1; // MakeModeFilter
-  static const int _TypeMatrix = 2; // MakeMatrixFilterRowMajor255
-  static const int _TypeLinearToSrgbGamma = 3; // MakeLinearToSRGBGamma
-  static const int _TypeSrgbToLinearGamma = 4; // MakeSRGBToLinearGamma
+  static const int _kTypeMode = 1; // MakeModeFilter
+  static const int _kTypeMatrix = 2; // MakeMatrixFilterRowMajor255
+  static const int _kTypeLinearToSrgbGamma = 3; // MakeLinearToSRGBGamma
+  static const int _kTypeSrgbToLinearGamma = 4; // MakeSRGBToLinearGamma
 
+  // SkImageFilters::ColorFilter
   @override
-  bool operator ==(Object other) {
-    return other is ColorFilter
-        && other._type == _type
-        && _listEquals<double>(other._matrix, _matrix)
-        && other._color == _color
-        && other._blendMode == _blendMode;
-  }
+  _ImageFilter _toNativeImageFilter() => _ImageFilter.fromColorFilter(this);
 
   _ColorFilter? _toNativeColorFilter() {
     switch (_type) {
-      case _TypeMode:
+      case _kTypeMode:
         if (_color == null || _blendMode == null) {
           return null;
         }
         return _ColorFilter.mode(this);
-      case _TypeMatrix:
+      case _kTypeMatrix:
         if (_matrix == null) {
           return null;
         }
         assert(_matrix!.length == 20, 'Color Matrix must have 20 entries.');
         return _ColorFilter.matrix(this);
-      case _TypeLinearToSrgbGamma:
+      case _kTypeLinearToSrgbGamma:
         return _ColorFilter.linearToSrgbGamma(this);
-      case _TypeSrgbToLinearGamma:
+      case _kTypeSrgbToLinearGamma:
         return _ColorFilter.srgbToLinearGamma(this);
       default:
         throw StateError('Unknown mode $_type for ColorFilter.');
@@ -2763,18 +3034,45 @@ class ColorFilter {
   }
 
   @override
+  bool operator ==(Object other) {
+    if (other.runtimeType != runtimeType)
+      return false;
+    return other is ColorFilter
+        && other._type == _type
+        && _listEquals<double>(other._matrix, _matrix)
+        && other._color == _color
+        && other._blendMode == _blendMode;
+  }
+
+  @override
   int get hashCode => hashValues(_color, _blendMode, hashList(_matrix), _type);
+
+  @override
+  String get _shortDescription {
+    switch (_type) {
+      case _kTypeMode:
+        return 'ColorFilter.mode($_color, $_blendMode)';
+      case _kTypeMatrix:
+        return 'ColorFilter.matrix($_matrix)';
+      case _kTypeLinearToSrgbGamma:
+        return 'ColorFilter.linearToSrgbGamma()';
+      case _kTypeSrgbToLinearGamma:
+        return 'ColorFilter.srgbToLinearGamma()';
+      default:
+        return 'unknow ColorFilter';
+    }
+  }
 
   @override
   String toString() {
     switch (_type) {
-      case _TypeMode:
+      case _kTypeMode:
         return 'ColorFilter.mode($_color, $_blendMode)';
-      case _TypeMatrix:
+      case _kTypeMatrix:
         return 'ColorFilter.matrix($_matrix)';
-      case _TypeLinearToSrgbGamma:
+      case _kTypeLinearToSrgbGamma:
         return 'ColorFilter.linearToSrgbGamma()';
-      case _TypeSrgbToLinearGamma:
+      case _kTypeSrgbToLinearGamma:
         return 'ColorFilter.srgbToLinearGamma()';
       default:
         return 'Unknown ColorFilter type. This is an error. If you\'re seeing this, please file an issue at https://github.com/flutter/flutter/issues/new.';
@@ -2791,27 +3089,27 @@ class ColorFilter {
 class _ColorFilter extends NativeFieldWrapperClass2 {
   _ColorFilter.mode(this.creator)
     : assert(creator != null), // ignore: unnecessary_null_comparison
-      assert(creator._type == ColorFilter._TypeMode) {
+      assert(creator._type == ColorFilter._kTypeMode) {
     _constructor();
     _initMode(creator._color!.value, creator._blendMode!.index);
   }
 
   _ColorFilter.matrix(this.creator)
     : assert(creator != null), // ignore: unnecessary_null_comparison
-      assert(creator._type == ColorFilter._TypeMatrix) {
+      assert(creator._type == ColorFilter._kTypeMatrix) {
     _constructor();
     _initMatrix(Float32List.fromList(creator._matrix!));
   }
   _ColorFilter.linearToSrgbGamma(this.creator)
     : assert(creator != null), // ignore: unnecessary_null_comparison
-      assert(creator._type == ColorFilter._TypeLinearToSrgbGamma) {
+      assert(creator._type == ColorFilter._kTypeLinearToSrgbGamma) {
     _constructor();
     _initLinearToSrgbGamma();
   }
 
   _ColorFilter.srgbToLinearGamma(this.creator)
     : assert(creator != null), // ignore: unnecessary_null_comparison
-      assert(creator._type == ColorFilter._TypeSrgbToLinearGamma) {
+      assert(creator._type == ColorFilter._kTypeSrgbToLinearGamma) {
     _constructor();
     _initSrgbToLinearGamma();
   }
@@ -2837,80 +3135,134 @@ class _ColorFilter extends NativeFieldWrapperClass2 {
 ///    this class as a backdrop filter.
 ///  * [SceneBuilder.pushImageFilter], which is the low-level API for using
 ///    this class as a child layer filter.
-class ImageFilter {
+abstract class ImageFilter {
   /// Creates an image filter that applies a Gaussian blur.
-  ImageFilter.blur({ double sigmaX = 0.0, double sigmaY = 0.0 })
-      : assert(sigmaX != null), // ignore: unnecessary_null_comparison
-        assert(sigmaY != null), // ignore: unnecessary_null_comparison
-        _data = _makeList(sigmaX, sigmaY),
-        _filterQuality = null,
-        _type = _kTypeBlur;
+  factory ImageFilter.blur({ double sigmaX = 0.0, double sigmaY = 0.0 }) {
+    assert(sigmaX != null); // ignore: unnecessary_null_comparison
+    assert(sigmaY != null); // ignore: unnecessary_null_comparison
+    return _GaussianBlurImageFilter(sigmaX: sigmaX, sigmaY: sigmaY);
+  }
 
   /// Creates an image filter that applies a matrix transformation.
   ///
   /// For example, applying a positive scale matrix (see [Matrix4.diagonal3])
   /// when used with [BackdropFilter] would magnify the background image.
-  ImageFilter.matrix(Float64List matrix4,
-                     { FilterQuality filterQuality = FilterQuality.low })
-      : assert(matrix4 != null), // ignore: unnecessary_null_comparison
-        _data = Float64List.fromList(matrix4),
-        _filterQuality = filterQuality,
-        _type = _kTypeMatrix {
+  factory ImageFilter.matrix(Float64List matrix4,
+                     { FilterQuality filterQuality = FilterQuality.low }) {
+    assert(matrix4 != null);       // ignore: unnecessary_null_comparison
+    assert(filterQuality != null); // ignore: unnecessary_null_comparison
     if (matrix4.length != 16)
       throw ArgumentError('"matrix4" must have 16 entries.');
+    return _MatrixImageFilter(data: Float64List.fromList(matrix4), filterQuality: filterQuality);
   }
 
-  static Float64List _makeList(double a, double b) {
-    final Float64List list = Float64List(2);
-    list[0] = a;
-    list[1] = b;
-    return list;
+  /// Composes the `inner` filter with `outer`, to combine their effects.
+  ///
+  /// Creates a single [ImageFilter] that when applied, has the same effect as
+  /// subsequently applying `inner` and `outer`, i.e.,
+  /// result = outer(inner(source)).
+  factory ImageFilter.compose({ required ImageFilter outer, required ImageFilter inner }) {
+    assert (inner != null && outer != null);  // ignore: unnecessary_null_comparison
+    return _ComposeImageFilter(innerFilter: inner, outerFilter: outer);
   }
 
-  final Float64List _data;
-  final FilterQuality? _filterQuality;
-  final int _type;
-  _ImageFilter? _nativeFilter;
+  // Converts this to a native SkImageFilter. See the comments of this method in
+  // subclasses for the exact type of SkImageFilter this method converts to.
+  _ImageFilter _toNativeImageFilter();
 
-  // The type of SkImageFilter class to create for Skia.
-  static const int _kTypeBlur = 0;   // MakeBlurFilter
-  static const int _kTypeMatrix = 1; // MakeMatrixFilterRowMajor255
+  // The description text to show when the filter is part of a composite
+  // [ImageFilter] created using [ImageFilter.compose].
+  String get _shortDescription;
+}
+
+class _MatrixImageFilter implements ImageFilter {
+  _MatrixImageFilter({ required this.data, required this.filterQuality });
+
+  final Float64List data;
+  final FilterQuality filterQuality;
+
+  // MakeMatrixFilterRowMajor255
+  late final _ImageFilter nativeFilter = _ImageFilter.matrix(this);
+  @override
+  _ImageFilter _toNativeImageFilter() => nativeFilter;
+
+  @override
+  String get _shortDescription => 'matrix($data, $filterQuality)';
+
+  @override
+  String toString() => 'ImageFilter.matrix($data, $filterQuality)';
 
   @override
   bool operator ==(Object other) {
-    return other is ImageFilter
-        && other._type == _type
-        && _listEquals<double>(other._data, _data)
-        && other._filterQuality == _filterQuality;
-  }
-
-  _ImageFilter _toNativeImageFilter() => _nativeFilter ??= _makeNativeImageFilter();
-
-  _ImageFilter _makeNativeImageFilter() {
-    switch (_type) {
-      case _kTypeBlur:
-        return _ImageFilter.blur(this);
-      case _kTypeMatrix:
-        return _ImageFilter.matrix(this);
-      default:
-        throw StateError('Unknown mode $_type for ImageFilter.');
-    }
+    if (other.runtimeType != runtimeType)
+      return false;
+    return other is _MatrixImageFilter
+        && other.filterQuality == filterQuality
+        && _listEquals<double>(other.data, data);
   }
 
   @override
-  int get hashCode => hashValues(_filterQuality, hashList(_data), _type);
+  int get hashCode => hashValues(filterQuality, hashList(data));
+}
+
+class _GaussianBlurImageFilter implements ImageFilter {
+  _GaussianBlurImageFilter({ required this.sigmaX, required this.sigmaY });
+
+  final double sigmaX;
+  final double sigmaY;
+
+  // MakeBlurFilter
+  late final _ImageFilter nativeFilter = _ImageFilter.blur(this);
+  @override
+  _ImageFilter _toNativeImageFilter() => nativeFilter;
 
   @override
-  String toString() {
-    switch (_type) {
-      case _kTypeBlur:
-        return 'ImageFilter.blur(${_data[0]}, ${_data[1]})';
-      case _kTypeMatrix:
-        return 'ImageFilter.matrix($_data, $_filterQuality)';
-      default:
-        return 'Unknown ImageFilter type. This is an error. If you\'re seeing this, please file an issue at https://github.com/flutter/flutter/issues/new.';
-    }
+  String get _shortDescription => 'blur($sigmaX, $sigmaY)';
+
+  @override
+  String toString() => 'ImageFilter.blur($sigmaX, $sigmaY)';
+
+  @override
+  bool operator ==(Object other) {
+    if (other.runtimeType != runtimeType)
+      return false;
+    return other is _GaussianBlurImageFilter
+        && other.sigmaX == sigmaX
+        && other.sigmaY == sigmaY;
   }
+
+  @override
+  int get hashCode => hashValues(sigmaX, sigmaY);
+}
+
+class _ComposeImageFilter implements ImageFilter {
+  _ComposeImageFilter({ required this.innerFilter, required this.outerFilter });
+
+  final ImageFilter innerFilter;
+  final ImageFilter outerFilter;
+
+  // SkImageFilters::Compose
+  late final _ImageFilter nativeFilter = _ImageFilter.composed(this);
+  @override
+  _ImageFilter _toNativeImageFilter() => nativeFilter;
+
+  @override
+  String get _shortDescription => '${innerFilter._shortDescription} -> ${outerFilter._shortDescription}';
+
+  @override
+  String toString() => 'ImageFilter.compose(source -> $_shortDescription -> result)';
+
+  @override
+  bool operator ==(Object other) {
+    if (other.runtimeType != runtimeType)
+      return false;
+    return other is _ComposeImageFilter
+        && other.innerFilter == innerFilter
+        && other.outerFilter == outerFilter;
+  }
+
+  @override
+  int get hashCode => hashValues(innerFilter, outerFilter);
 }
 
 /// An [ImageFilter] that is backed by a native SkImageFilter.
@@ -2922,11 +3274,11 @@ class _ImageFilter extends NativeFieldWrapperClass2 {
   void _constructor() native 'ImageFilter_constructor';
 
   /// Creates an image filter that applies a Gaussian blur.
-  _ImageFilter.blur(this.creator)
-    : assert(creator != null), // ignore: unnecessary_null_comparison
-      assert(creator._type == ImageFilter._kTypeBlur) {
+  _ImageFilter.blur(_GaussianBlurImageFilter filter)
+    : assert(filter != null), // ignore: unnecessary_null_comparison
+      creator = filter {    // ignore: prefer_initializing_formals
     _constructor();
-    _initBlur(creator._data[0], creator._data[1]);
+    _initBlur(filter.sigmaX, filter.sigmaY);
   }
   void _initBlur(double sigmaX, double sigmaY) native 'ImageFilter_initBlur';
 
@@ -2934,16 +3286,36 @@ class _ImageFilter extends NativeFieldWrapperClass2 {
   ///
   /// For example, applying a positive scale matrix (see [Matrix4.diagonal3])
   /// when used with [BackdropFilter] would magnify the background image.
-  _ImageFilter.matrix(this.creator)
-    : assert(creator != null), // ignore: unnecessary_null_comparison
-      assert(creator._type == ImageFilter._kTypeMatrix) {
-    if (creator._data.length != 16)
+  _ImageFilter.matrix(_MatrixImageFilter filter)
+    : assert(filter != null), // ignore: unnecessary_null_comparison
+      creator = filter {    // ignore: prefer_initializing_formals
+    if (filter.data.length != 16)
       throw ArgumentError('"matrix4" must have 16 entries.');
     _constructor();
-    _initMatrix(creator._data, creator._filterQuality!.index);
+    _initMatrix(filter.data, filter.filterQuality.index);
   }
   void _initMatrix(Float64List matrix4, int filterQuality) native 'ImageFilter_initMatrix';
 
+  /// Converts a color filter to an image filter.
+  _ImageFilter.fromColorFilter(ColorFilter filter)
+    : assert(filter != null), // ignore: unnecessary_null_comparison
+      creator = filter {    // ignore: prefer_initializing_formals
+    _constructor();
+    final _ColorFilter? nativeFilter = filter._toNativeColorFilter();
+    _initColorFilter(nativeFilter);
+  }
+  void _initColorFilter(_ColorFilter? colorFilter) native 'ImageFilter_initColorFilter';
+
+  /// Composes `_innerFilter` with `_outerFilter`.
+  _ImageFilter.composed(_ComposeImageFilter filter)
+    : assert(filter != null), // ignore: unnecessary_null_comparison
+      creator = filter {    // ignore: prefer_initializing_formals
+    _constructor();
+    final _ImageFilter nativeFilterInner = filter.innerFilter._toNativeImageFilter();
+    final _ImageFilter nativeFilterOuter = filter.outerFilter._toNativeImageFilter();
+    _initComposed(nativeFilterOuter,  nativeFilterInner);
+  }
+  void _initComposed(_ImageFilter outerFilter, _ImageFilter innerFilter) native 'ImageFilter_initComposeFilter';
   /// The original Dart object that created the native wrapper, which retains
   /// the values used for the filter.
   final ImageFilter creator;
@@ -3239,10 +3611,10 @@ class ImageShader extends Shader {
     if (matrix4.length != 16)
       throw ArgumentError('"matrix4" must have 16 entries.');
     _constructor();
-    _initWithImage(image, tmx.index, tmy.index, matrix4);
+    _initWithImage(image._image, tmx.index, tmy.index, matrix4);
   }
   void _constructor() native 'ImageShader_constructor';
-  void _initWithImage(Image image, int tmx, int tmy, Float64List matrix4) native 'ImageShader_initWithImage';
+  void _initWithImage(_Image image, int tmx, int tmy, Float64List matrix4) native 'ImageShader_initWithImage';
 }
 
 /// Defines how a list of points is interpreted when drawing a set of triangles.
@@ -3843,9 +4215,9 @@ class Canvas extends NativeFieldWrapperClass2 {
     assert(image != null); // image is checked on the engine side
     assert(_offsetIsValid(offset));
     assert(paint != null); // ignore: unnecessary_null_comparison
-    _drawImage(image, offset.dx, offset.dy, paint._objects, paint._data);
+    _drawImage(image._image, offset.dx, offset.dy, paint._objects, paint._data);
   }
-  void _drawImage(Image image,
+  void _drawImage(_Image image,
                   double x,
                   double y,
                   List<dynamic>? paintObjects,
@@ -3866,7 +4238,7 @@ class Canvas extends NativeFieldWrapperClass2 {
     assert(_rectIsValid(src));
     assert(_rectIsValid(dst));
     assert(paint != null); // ignore: unnecessary_null_comparison
-    _drawImageRect(image,
+    _drawImageRect(image._image,
                    src.left,
                    src.top,
                    src.right,
@@ -3878,7 +4250,7 @@ class Canvas extends NativeFieldWrapperClass2 {
                    paint._objects,
                    paint._data);
   }
-  void _drawImageRect(Image image,
+  void _drawImageRect(_Image image,
                       double srcLeft,
                       double srcTop,
                       double srcRight,
@@ -3909,7 +4281,7 @@ class Canvas extends NativeFieldWrapperClass2 {
     assert(_rectIsValid(center));
     assert(_rectIsValid(dst));
     assert(paint != null); // ignore: unnecessary_null_comparison
-    _drawImageNine(image,
+    _drawImageNine(image._image,
                    center.left,
                    center.top,
                    center.right,
@@ -3921,7 +4293,7 @@ class Canvas extends NativeFieldWrapperClass2 {
                    paint._objects,
                    paint._data);
   }
-  void _drawImageNine(Image image,
+  void _drawImageNine(_Image image,
                       double centerLeft,
                       double centerTop,
                       double centerRight,
@@ -4137,7 +4509,7 @@ class Canvas extends NativeFieldWrapperClass2 {
   ///         Rect.fromLTWH(sprite.index * 10.0, 0.0, 10.0, 10.0),
   ///     ], <Color>[
   ///       for (Sprite sprite in allSprites)
-  ///         Color.white.withAlpha(sprite.alpha),
+  ///         Colors.white.withAlpha(sprite.alpha),
   ///     ], BlendMode.srcIn, null, paint);
   ///   }
   ///
@@ -4198,7 +4570,7 @@ class Canvas extends NativeFieldWrapperClass2 {
     final Float32List? cullRectBuffer = cullRect?._value32;
 
     _drawAtlas(
-      paint._objects, paint._data, atlas, rstTransformBuffer, rectBuffer,
+      paint._objects, paint._data, atlas._image, rstTransformBuffer, rectBuffer,
       colorBuffer, (blendMode ?? BlendMode.src).index, cullRectBuffer
     );
   }
@@ -4264,7 +4636,7 @@ class Canvas extends NativeFieldWrapperClass2 {
   ///       transformList[i * 4 + 0] = 1.0;
   ///       transformList[i * 4 + 1] = 0.0;
   ///       transformList[i * 4 + 2] = sprite.centerX - 5.0;
-  ///       transformList[i * 4 + 2] = sprite.centerY - 5.0;
+  ///       transformList[i * 4 + 3] = sprite.centerY - 5.0;
   ///     }
   ///     Paint paint = Paint();
   ///     canvas.drawAtlas(spriteAtlas, transformList, rectList, null, null, null, paint);
@@ -4324,7 +4696,7 @@ class Canvas extends NativeFieldWrapperClass2 {
   ///       transformList[i * 4 + 0] = transform.scos;
   ///       transformList[i * 4 + 1] = transform.ssin;
   ///       transformList[i * 4 + 2] = transform.tx;
-  ///       transformList[i * 4 + 2] = transform.ty;
+  ///       transformList[i * 4 + 3] = transform.ty;
   ///
   ///       // This example computes the color value directly, but one could also compute
   ///       // an actual Color object and use its Color.value getter for the same result.
@@ -4367,14 +4739,14 @@ class Canvas extends NativeFieldWrapperClass2 {
       throw ArgumentError('If non-null, "colors" length must be one fourth the length of "rstTransforms" and "rects".');
 
     _drawAtlas(
-      paint._objects, paint._data, atlas, rstTransforms, rects,
+      paint._objects, paint._data, atlas._image, rstTransforms, rects,
       colors, (blendMode ?? BlendMode.src).index, cullRect?._value32
     );
   }
 
   void _drawAtlas(List<dynamic>? paintObjects,
                   ByteData paintData,
-                  Image atlas,
+                  _Image atlas,
                   Float32List rstTransforms,
                   Float32List rects,
                   Int32List? colors,
@@ -4428,11 +4800,13 @@ class Picture extends NativeFieldWrapperClass2 {
     if (width <= 0 || height <= 0)
       throw Exception('Invalid image dimensions.');
     return _futurize(
-      (_Callback<Image> callback) => _toImage(width, height, callback)
+      (_Callback<Image> callback) => _toImage(width, height, (_Image image) {
+        callback(Image._(image));
+      }),
     );
   }
 
-  String _toImage(int width, int height, _Callback<Image> callback) native 'Picture_toImage';
+  String? _toImage(int width, int height, _Callback<_Image> callback) native 'Picture_toImage';
 
   /// Release the resources used by this object. The object is no longer usable
   /// after this method is called.
