@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// @dart = 2.6
 import 'dart:io' as io;
 
 import 'package:args/command_runner.dart';
@@ -25,7 +24,10 @@ CommandRunner runner = CommandRunner<bool>(
   ..addCommand(TestCommand())
   ..addCommand(BuildCommand());
 
-void main(List<String> args) async {
+void main(List<String> rawArgs) async {
+  // Remove --clean from the list as that's processed by the wrapper script.
+  final List<String> args = rawArgs.where((arg) => arg != '--clean').toList();
+
   if (args.isEmpty) {
     // The felt tool was invoked with no arguments. Print usage.
     runner.printUsage();
@@ -38,7 +40,7 @@ void main(List<String> args) async {
   try {
     final bool result = (await runner.run(args)) as bool;
     if (result == false) {
-      print('Sub-command returned false: `${args.join(' ')}`');
+      print('Sub-command failed: `${args.join(' ')}`');
       exitCode = 1;
     }
   } on UsageException catch (e) {
@@ -52,7 +54,7 @@ void main(List<String> args) async {
         'executable: ${e.executable} '
         'arguments: ${e.arguments} '
         'exit code: ${e.exitCode}');
-    exitCode = e.exitCode;
+    exitCode = e.exitCode ?? 1;
   } catch (e) {
     rethrow;
   } finally {

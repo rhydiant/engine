@@ -41,7 +41,7 @@ class PlatformViewAndroidJNI {
   /// @brief      Sends a platform message. The message may be empty.
   ///
   virtual void FlutterViewHandlePlatformMessage(
-      fml::RefPtr<flutter::PlatformMessage> message,
+      std::unique_ptr<flutter::PlatformMessage> message,
       int responseId) = 0;
 
   //----------------------------------------------------------------------------
@@ -56,8 +56,10 @@ class PlatformViewAndroidJNI {
   ///
   /// @note       Must be called from the platform thread.
   ///
-  virtual void FlutterViewUpdateSemantics(std::vector<uint8_t> buffer,
-                                          std::vector<std::string> strings) = 0;
+  virtual void FlutterViewUpdateSemantics(
+      std::vector<uint8_t> buffer,
+      std::vector<std::string> strings,
+      std::vector<std::vector<uint8_t>> string_attribute_args) = 0;
 
   //----------------------------------------------------------------------------
   /// @brief      Sends new custom accessibility events.
@@ -195,6 +197,8 @@ class PlatformViewAndroidJNI {
       std::vector<std::string> supported_locales_data) = 0;
 
   virtual double GetDisplayRefreshRate() = 0;
+
+  virtual bool RequestDartDeferredLibrary(int loading_unit_id) = 0;
 };
 
 }  // namespace flutter

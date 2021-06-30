@@ -6,9 +6,17 @@
 ///
 /// Prefer keeping the original CanvasKit names so it is easier to locate
 /// the API behind these bindings in the Skia source code.
+@JS()
+library canvaskit_api;
 
-// @dart = 2.12
-part of engine;
+import 'dart:async';
+import 'dart:html' as html;
+import 'dart:js' as js;
+import 'dart:typed_data';
+
+import 'package:js/js.dart';
+import 'package:ui/src/engine.dart';
+import 'package:ui/ui.dart' as ui;
 
 /// Entrypoint into the CanvasKit API.
 late CanvasKit canvasKit;
@@ -17,8 +25,15 @@ late CanvasKit canvasKit;
 /// static APIs.
 ///
 /// See, e.g. [SkPaint].
+///
+/// This also acts as a cache of an initialized CanvasKit instance. We can use
+/// this, for example, to perform a hot restart without needing to redownload
+/// and reinitialize CanvasKit.
 @JS('window.flutterCanvasKit')
-external set windowFlutterCanvasKit(CanvasKit value);
+external set windowFlutterCanvasKit(CanvasKit? value);
+
+@JS('window.flutterCanvasKit')
+external CanvasKit? get windowFlutterCanvasKit;
 
 @JS()
 @anonymous
@@ -30,6 +45,8 @@ class CanvasKit {
   external SkFilterQualityEnum get FilterQuality;
   external SkBlurStyleEnum get BlurStyle;
   external SkTileModeEnum get TileMode;
+  external SkFilterModeEnum get FilterMode;
+  external SkMipmapModeEnum get MipmapMode;
   external SkFillTypeEnum get FillType;
   external SkAlphaTypeEnum get AlphaType;
   external SkColorTypeEnum get ColorType;
@@ -41,22 +58,22 @@ class CanvasKit {
   external SkRectWidthStyleEnum get RectWidthStyle;
   external SkAffinityEnum get Affinity;
   external SkTextAlignEnum get TextAlign;
+  external SkTextHeightBehaviorEnum get TextHeightBehavior;
   external SkTextDirectionEnum get TextDirection;
   external SkFontWeightEnum get FontWeight;
   external SkFontSlantEnum get FontSlant;
-  external SkAnimatedImage MakeAnimatedImageFromEncoded(Uint8List imageData);
+  external SkAnimatedImage? MakeAnimatedImageFromEncoded(Uint8List imageData);
   external SkShaderNamespace get Shader;
   external SkMaskFilterNamespace get MaskFilter;
   external SkColorFilterNamespace get ColorFilter;
   external SkImageFilterNamespace get ImageFilter;
-  external SkPath MakePathFromOp(SkPath path1, SkPath path2, SkPathOp pathOp);
+  external SkPathNamespace get Path;
   external SkTonalColors computeTonalColors(SkTonalColors inTonalColors);
   external SkVertices MakeVertices(
     SkVertexMode mode,
-    List<Float32List> positions,
-    List<Float32List>? textureCoordinates,
-    // TODO(yjbanov): make this Uint32Array when CanvasKit supports it.
-    List<Float32List>? colors,
+    Float32List positions,
+    Float32List? textureCoordinates,
+    Uint32List? colors,
     Uint16List? indices,
   );
   external SkParagraphBuilderNamespace get ParagraphBuilder;
@@ -96,9 +113,18 @@ class CanvasKit {
   external SkSurface MakeSWCanvasSurface(html.CanvasElement canvas);
   external void setCurrentContext(int glContext);
 
-  /// Creates an [SkPath] using commands obtained from [SkPath.toCmds].
-  // TODO(yjbanov): switch to CanvasKit.Path.MakeFromCmds when it's available.
-  external SkPath MakePathFromCmds(List<dynamic> pathCommands);
+  /// Creates an image from decoded pixels represented as a list of bytes.
+  ///
+  /// The pixel data must be encoded according to the image info in [info].
+  ///
+  /// Typically pixel data is obtained using [SkImage.readPixels]. The
+  /// parameters specified in [SkImageInfo] passed [SkImage.readPixels] must
+  /// match [info].
+  external SkImage MakeImage(
+    SkImageInfo info,
+    Uint8List pixels,
+    int bytesPerRow,
+  );
 }
 
 @JS('window.CanvasKitInit')
@@ -131,7 +157,7 @@ class ColorSpace {}
 @anonymous
 class SkWebGLContextOptions {
   external factory SkWebGLContextOptions({
-    required int anitalias,
+    required int antialias,
     // WebGL version: 1 or 2.
     required int majorVersion,
   });
@@ -282,10 +308,40 @@ SkTextAlign toSkTextAlign(ui.TextAlign align) {
 }
 
 @JS()
+class SkTextHeightBehaviorEnum {
+  external SkTextHeightBehavior get All;
+  external SkTextHeightBehavior get DisableFirstAscent;
+  external SkTextHeightBehavior get DisableLastDescent;
+  external SkTextHeightBehavior get DisableAll;
+}
+
+@JS()
+class SkTextHeightBehavior {
+  external int get value;
+}
+
+final List<SkTextHeightBehavior> _skTextHeightBehaviors =
+    <SkTextHeightBehavior>[
+  canvasKit.TextHeightBehavior.All,
+  canvasKit.TextHeightBehavior.DisableFirstAscent,
+  canvasKit.TextHeightBehavior.DisableLastDescent,
+  canvasKit.TextHeightBehavior.DisableAll,
+];
+
+SkTextHeightBehavior toSkTextHeightBehavior(ui.TextHeightBehavior behavior) {
+  int index = (behavior.applyHeightToFirstAscent ? 0 : 1 << 0) |
+      (behavior.applyHeightToLastDescent ? 0 : 1 << 1);
+  return _skTextHeightBehaviors[index];
+}
+
+@JS()
 class SkRectHeightStyleEnum {
-  // TODO(yjbanov): support all styles
   external SkRectHeightStyle get Tight;
   external SkRectHeightStyle get Max;
+  external SkRectHeightStyle get IncludeLineSpacingMiddle;
+  external SkRectHeightStyle get IncludeLineSpacingTop;
+  external SkRectHeightStyle get IncludeLineSpacingBottom;
+  external SkRectHeightStyle get Strut;
 }
 
 @JS()
@@ -296,11 +352,14 @@ class SkRectHeightStyle {
 final List<SkRectHeightStyle> _skRectHeightStyles = <SkRectHeightStyle>[
   canvasKit.RectHeightStyle.Tight,
   canvasKit.RectHeightStyle.Max,
+  canvasKit.RectHeightStyle.IncludeLineSpacingMiddle,
+  canvasKit.RectHeightStyle.IncludeLineSpacingTop,
+  canvasKit.RectHeightStyle.IncludeLineSpacingBottom,
+  canvasKit.RectHeightStyle.Strut,
 ];
 
 SkRectHeightStyle toSkRectHeightStyle(ui.BoxHeightStyle style) {
-  final int index = style.index;
-  return _skRectHeightStyles[index < 2 ? index : 0];
+  return _skRectHeightStyles[style.index];
 }
 
 @JS()
@@ -625,6 +684,7 @@ class SkTileModeEnum {
   external SkTileMode get Clamp;
   external SkTileMode get Repeat;
   external SkTileMode get Mirror;
+  external SkTileMode get Decal;
 }
 
 @JS()
@@ -636,10 +696,46 @@ final List<SkTileMode> _skTileModes = <SkTileMode>[
   canvasKit.TileMode.Clamp,
   canvasKit.TileMode.Repeat,
   canvasKit.TileMode.Mirror,
+  canvasKit.TileMode.Decal,
 ];
 
 SkTileMode toSkTileMode(ui.TileMode mode) {
   return _skTileModes[mode.index];
+}
+
+@JS()
+class SkFilterModeEnum {
+  external SkFilterMode get Nearest;
+  external SkFilterMode get Linear;
+}
+
+@JS()
+class SkFilterMode {
+  external int get value;
+}
+
+SkFilterMode toSkFilterMode(ui.FilterQuality filterQuality) {
+  return filterQuality == ui.FilterQuality.none
+      ? canvasKit.FilterMode.Nearest
+      : canvasKit.FilterMode.Linear;
+}
+
+@JS()
+class SkMipmapModeEnum {
+  external SkMipmapMode get None;
+  external SkMipmapMode get Nearest;
+  external SkMipmapMode get Linear;
+}
+
+@JS()
+class SkMipmapMode {
+  external int get value;
+}
+
+SkMipmapMode toSkMipmapMode(ui.FilterQuality filterQuality) {
+  return filterQuality == ui.FilterQuality.medium
+      ? canvasKit.MipmapMode.Linear
+      : canvasKit.MipmapMode.None;
 }
 
 @JS()
@@ -682,7 +778,7 @@ class SkAnimatedImage {
   /// Returns duration in milliseconds.
   external int getRepetitionCount();
   external int decodeNextFrame();
-  external SkImage getCurrentFrame();
+  external SkImage makeImageAtCurrentFrame();
   external int width();
   external int height();
 
@@ -699,13 +795,22 @@ class SkImage {
   external void delete();
   external int width();
   external int height();
-  external SkShader makeShader(
+  external SkShader makeShaderCubic(
     SkTileMode tileModeX,
     SkTileMode tileModeY,
+    double B,
+    double C,
     Float32List? matrix, // 3x3 matrix
   );
-  external Uint8List readPixels(SkImageInfo imageInfo, int srcX, int srcY);
-  external SkData encodeToData();
+  external SkShader makeShaderOptions(
+    SkTileMode tileModeX,
+    SkTileMode tileModeY,
+    SkFilterMode filterMode,
+    SkMipmapMode mipmapMode,
+    Float32List? matrix, // 3x3 matrix
+  );
+  external Uint8List readPixels(int srcX, int srcY, SkImageInfo imageInfo);
+  external Uint8List? encodeToBytes();
   external bool isAliasOf(SkImage other);
   external bool isDeleted();
 }
@@ -715,15 +820,16 @@ class SkShaderNamespace {
   external SkShader MakeLinearGradient(
     Float32List from, // 2-element array
     Float32List to, // 2-element array
-    List<Float32List> colors,
+    Uint32List colors,
     Float32List colorStops,
     SkTileMode tileMode,
+    Float32List? matrix,
   );
 
   external SkShader MakeRadialGradient(
     Float32List center, // 2-element array
     double radius,
-    List<Float32List> colors,
+    Uint32List colors,
     Float32List colorStops,
     SkTileMode tileMode,
     Float32List? matrix, // 3x3 matrix
@@ -735,7 +841,7 @@ class SkShaderNamespace {
     double focalRadius,
     Float32List center,
     double radius,
-    List<Float32List> colors,
+    Uint32List colors,
     Float32List colorStops,
     SkTileMode tileMode,
     Float32List? matrix, // 3x3 matrix
@@ -745,7 +851,7 @@ class SkShaderNamespace {
   external SkShader MakeSweepGradient(
     double cx,
     double cy,
-    List<Float32List> colors,
+    Uint32List colors,
     Float32List colorStops,
     SkTileMode tileMode,
     Float32List? matrix, // 3x3 matrix
@@ -764,7 +870,7 @@ class SkShader {
 @JS()
 class SkMaskFilterNamespace {
   external SkMaskFilter MakeBlur(
-    SkBlurStyle blurStyle, double sigma, bool respectCTM);
+      SkBlurStyle blurStyle, double sigma, bool respectCTM);
 }
 
 // This needs to be bound to top-level because SkPaint is initialized
@@ -819,18 +925,18 @@ class SkImageFilterNamespace {
     double sigmaX,
     double sigmaY,
     SkTileMode tileMode,
-    Null input, // we don't use this yet
+    void input, // we don't use this yet
   );
 
   external SkImageFilter MakeMatrixTransform(
     Float32List matrix, // 3x3 matrix
     SkFilterQuality filterQuality,
-    Null input, // we don't use this yet
+    void input, // we don't use this yet
   );
 
   external SkImageFilter MakeColorFilter(
     SkColorFilter colorFilter,
-    Null input, // we don't use this yet
+    void input, // we don't use this yet
   );
 
   external SkImageFilter MakeCompose(
@@ -843,6 +949,15 @@ class SkImageFilterNamespace {
 @anonymous
 class SkImageFilter {
   external void delete();
+}
+
+@JS()
+class SkPathNamespace {
+  /// Creates an [SkPath] using commands obtained from [SkPath.toCmds].
+  external SkPath MakeFromCmds(List<dynamic> pathCommands);
+
+  /// Creates an [SkPath] by combining [path1] and [path2] using [pathOp].
+  external SkPath MakeFromOp(SkPath path1, SkPath path2, SkPathOp pathOp);
 }
 
 // Mappings from SkMatrix-index to input-index.
@@ -999,39 +1114,6 @@ Float32List toSharedSkColor3(ui.Color color) {
 
 final SkFloat32List _sharedSkColor3 = mallocFloat32List(4);
 
-Uint32List toSkIntColorList(List<ui.Color> colors) {
-  final int len = colors.length;
-  final Uint32List result = Uint32List(len);
-  for (int i = 0; i < len; i++) {
-    result[i] = colors[i].value;
-  }
-  return result;
-}
-
-List<Float32List> toSkFloatColorList(List<ui.Color> colors) {
-  final int len = colors.length;
-  final List<Float32List> result = <Float32List>[];
-  for (int i = 0; i < len; i++) {
-    final Float32List array = Float32List(4);
-    final ui.Color color = colors[i];
-    array[0] = color.red / 255.0;
-    array[1] = color.green / 255.0;
-    array[2] = color.blue / 255.0;
-    array[3] = color.alpha / 255.0;
-    result.add(array);
-  }
-  return result;
-}
-
-List<Float32List> encodeRawColorList(Int32List rawColors) {
-  final int colorCount = rawColors.length;
-  final List<ui.Color> colors = <ui.Color>[];
-  for (int i = 0; i < colorCount; ++i) {
-    colors.add(ui.Color(rawColors[i]));
-  }
-  return toSkFloatColorList(colors);
-}
-
 @JS('window.flutterCanvasKit.Path')
 class SkPath {
   external SkPath([SkPath? other]);
@@ -1164,7 +1246,8 @@ class SkPath {
 
   /// Serializes the path into a list of commands.
   ///
-  /// The list can be used to create a new [SkPath] using [CanvasKit.MakePathFromCmds].
+  /// The list can be used to create a new [SkPath] using
+  /// [CanvasKit.Path.MakeFromCmds].
   external List<dynamic> toCmds();
 
   external void delete();
@@ -1245,32 +1328,23 @@ SkFloat32List toMallocedSkPoints(List<ui.Offset> points) {
   return skPoints;
 }
 
-// TODO(yjbanov): this is inefficient. We should be able to pass points
-//                as Float32List without a conversion.
-List<Float32List> rawPointsToSkPoints2d(Float32List points) {
-  assert(points.length % 2 == 0);
-  final int pointLength = points.length ~/ 2;
-  final List<Float32List> result = <Float32List>[];
-  for (int i = 0; i < pointLength; i++) {
-    int x = i * 2;
-    int y = x + 1;
-    final Float32List skPoint = Float32List(2);
-    skPoint[0] = points[x];
-    skPoint[1] = points[y];
-    result.add(skPoint);
+/// Converts a list of [ui.Offset] into a flat list of points.
+Float32List toFlatSkPoints(List<ui.Offset> points) {
+  final int len = points.length;
+  final Float32List result = Float32List(len * 2);
+  for (int i = 0; i < len; i++) {
+    result[2 * i] = points[i].dx;
+    result[2 * i + 1] = points[i].dy;
   }
   return result;
 }
 
-List<Float32List> toSkPoints2d(List<ui.Offset> offsets) {
-  final int len = offsets.length;
-  final List<Float32List> result = <Float32List>[];
+/// Converts a list of [ui.Color] into a flat list of ints.
+Uint32List toFlatColors(List<ui.Color> colors) {
+  final int len = colors.length;
+  final Uint32List result = Uint32List(len);
   for (int i = 0; i < len; i++) {
-    final ui.Offset offset = offsets[i];
-    final Float32List skPoint = Float32List(2);
-    skPoint[0] = offset.dx;
-    skPoint[1] = offset.dy;
-    result.add(skPoint);
+    result[i] = colors[i].value;
   }
   return result;
 }
@@ -1329,7 +1403,7 @@ class SkCanvas {
     Float32List rstTransforms,
     SkPaint paint,
     SkBlendMode blendMode,
-    List<Float32List>? colors,
+    Uint32List? colors,
   );
   external void drawCircle(
     double x,
@@ -1346,23 +1420,43 @@ class SkCanvas {
     Float32List inner,
     SkPaint paint,
   );
-  external void drawImage(
+  external void drawImageCubic(
     SkImage image,
     double x,
     double y,
+    double B,
+    double C,
     SkPaint paint,
   );
-  external void drawImageRect(
+  external void drawImageOptions(
+    SkImage image,
+    double x,
+    double y,
+    SkFilterMode filterMode,
+    SkMipmapMode mipmapMode,
+    SkPaint paint,
+  );
+  external void drawImageRectCubic(
     SkImage image,
     Float32List src,
     Float32List dst,
+    double B,
+    double C,
     SkPaint paint,
-    bool fastSample,
+  );
+  external void drawImageRectOptions(
+    SkImage image,
+    Float32List src,
+    Float32List dst,
+    SkFilterMode filterMode,
+    SkMipmapMode mipmapMode,
+    SkPaint paint,
   );
   external void drawImageNine(
     SkImage image,
     Float32List center,
     Float32List dst,
+    SkFilterMode filterMode,
     SkPaint paint,
   );
   external void drawLine(
@@ -1429,7 +1523,6 @@ class SkCanvas {
   external void skew(double x, double y);
   external void concat(Float32List matrix);
   external void translate(double x, double y);
-  external void flush();
   external void drawPicture(SkPicture picture);
   external void drawParagraph(
     SkParagraph paragraph,
@@ -1466,7 +1559,13 @@ class SkParagraphBuilder {
   external void pushPaintStyle(
       SkTextStyle textStyle, SkPaint foreground, SkPaint background);
   external void pop();
-  external void addPlaceholder(SkPlaceholderStyleProperties placeholderStyle);
+  external void addPlaceholder(
+    double width,
+    double height,
+    SkPlaceholderAlignment alignment,
+    SkTextBaseline baseline,
+    double offset,
+  );
   external SkParagraph build();
   external void delete();
 }
@@ -1481,7 +1580,7 @@ class SkParagraphStyleProperties {
   external set textAlign(SkTextAlign? value);
   external set textDirection(SkTextDirection? value);
   external set heightMultiplier(double? value);
-  external set textHeightBehavior(int? value);
+  external set textHeightBehavior(SkTextHeightBehavior? value);
   external set maxLines(int? value);
   external set ellipsis(String? value);
   external set textStyle(SkTextStyleProperties? value);
@@ -1583,6 +1682,7 @@ class SkTextStyleProperties {
   external set letterSpacing(double? value);
   external set wordSpacing(double? value);
   external set heightMultiplier(double? value);
+  external set halfLeading(bool? value);
   external set locale(String? value);
   external set fontFamilies(List<String>? value);
   external set fontStyle(SkFontStyle? value);
@@ -1597,19 +1697,10 @@ class SkStrutStyleProperties {
   external set fontStyle(SkFontStyle? value);
   external set fontSize(double? value);
   external set heightMultiplier(double? value);
+  external set halfLeading(bool? value);
   external set leading(double? value);
   external set strutEnabled(bool? value);
   external set forceStrutHeight(bool? value);
-}
-
-@JS()
-@anonymous
-class SkPlaceholderStyleProperties {
-  external set width(double? value);
-  external set height(double? value);
-  external set alignment(SkPlaceholderAlignment? value);
-  external set offset(double? value);
-  external set baseline(SkTextBaseline? value);
 }
 
 @JS()
@@ -1642,6 +1733,8 @@ class SkTypeface {}
 class SkFont {
   external SkFont(SkTypeface typeface);
   external Uint8List getGlyphIDs(String text);
+  external void getGlyphBounds(
+      List<int> glyphs, SkPaint? paint, Uint8List? output);
 }
 
 @JS()
@@ -1649,7 +1742,7 @@ class SkFont {
 class SkFontMgr {
   external String? getFamilyName(int fontId);
   external void delete();
-  external SkTypeface MakeTypefaceFromData(Uint8List font);
+  external SkTypeface? MakeTypefaceFromData(Uint8List font);
 }
 
 @JS('window.flutterCanvasKit.TypefaceFontProvider')
@@ -1660,11 +1753,29 @@ class TypefaceFontProvider extends SkFontMgr {
 
 @JS()
 @anonymous
+class SkLineMetrics {
+  external int get startIndex;
+  external int get endIndex;
+  external int get endExcludingWhitespaces;
+  external int get endIncludingNewline;
+  external bool get isHardBreak;
+  external double get ascent;
+  external double get descent;
+  external double get height;
+  external double get width;
+  external double get left;
+  external double get baseline;
+  external int get lineNumber;
+}
+
+@JS()
+@anonymous
 class SkParagraph {
   external double getAlphabeticBaseline();
   external bool didExceedMaxLines();
   external double getHeight();
   external double getIdeographicBaseline();
+  external List<SkLineMetrics> getLineMetrics();
   external double getLongestLine();
   external double getMaxIntrinsicWidth();
   external double getMinIntrinsicWidth();
@@ -1675,7 +1786,7 @@ class SkParagraph {
     SkRectHeightStyle heightStyle,
     SkRectWidthStyle widthStyle,
   );
-  external List<Float32List> getRectsForPlaceholders();
+  external List<dynamic> getRectsForPlaceholders();
   external SkTextPosition getGlyphPositionAtCoordinate(
     double x,
     double y,
@@ -1726,48 +1837,170 @@ class TypefaceFontProviderNamespace {
   external TypefaceFontProvider Make();
 }
 
-Timer? _skObjectCollector;
-List<SkDeletable> _skObjectDeleteQueue = <SkDeletable>[];
+/// Collects Skia objects that are no longer necessary.
+abstract class Collector {
+  /// The production collector implementation.
+  static final Collector _productionInstance = ProductionCollector();
 
-final SkObjectFinalizationRegistry skObjectFinalizationRegistry =
-    SkObjectFinalizationRegistry(js.allowInterop((SkDeletable deletable) {
-  _scheduleSkObjectCollection(deletable);
-}));
+  /// The collector implementation currently in use.
+  static Collector get instance => _instance;
+  static Collector _instance = _productionInstance;
 
-/// Schedules a Skia object for deletion in an asap timer.
+  /// In tests overrides the collector implementation.
+  static void debugOverrideCollector(Collector override) {
+    _instance = override;
+  }
+
+  /// In tests restores the collector to the production implementation.
+  static void debugRestoreCollector() {
+    _instance = _productionInstance;
+  }
+
+  /// Registers a [deletable] for collection when the [wrapper] object is
+  /// garbage collected.
+  ///
+  /// The [debugLabel] is used to track the origin of the deletable.
+  void register(Object wrapper, SkDeletable deletable);
+
+  /// Deletes the [deletable].
+  ///
+  /// The exact timing of the deletion is implementation-specific. For example,
+  /// a production implementation may want to batch deletables and schedule a
+  /// timer to collect them instead of deleting right away.
+  ///
+  /// A test implementation may want a collection strategy that's less efficient
+  /// but more predictable.
+  void collect(SkDeletable deletable);
+}
+
+/// Uses the browser's real `FinalizationRegistry` to collect objects.
 ///
-/// A timer is used for the following reasons:
-///
-///  - Deleting the object immediately may lead to dangling pointer as the Skia
-///    object may still be used by a function in the current frame. For example,
-///    a `CkPaint` + `SkPaint` pair may be created by the framework, passed to
-///    the engine, and the `CkPaint` dropped immediately. Because GC can kick in
-///    any time, including in the middle of the event, we may delete `SkPaint`
-///    prematurely.
-///  - A microtask, while solves the problem above, would prevent the event from
-///    yielding to the graphics system to render the frame on the screen if there
-///    is a large number of objects to delete, causing jank.
-///
-/// Because scheduling a timer is expensive, the timer is shared by all objects
-/// deleted this frame. No timer is created if no objects were scheduled for
-/// deletion.
-void _scheduleSkObjectCollection(SkDeletable deletable) {
-  _skObjectDeleteQueue.add(deletable);
-  _skObjectCollector ??= Timer(Duration.zero, () {
-    html.window.performance.mark('SkObject collection-start');
-    final int length = _skObjectDeleteQueue.length;
-    for (int i = 0; i < length; i++) {
-      _skObjectDeleteQueue[i].delete();
+/// Uses timers to delete objects in batches and outside the animation frame.
+class ProductionCollector implements Collector {
+  ProductionCollector() {
+    _skObjectFinalizationRegistry =
+        SkObjectFinalizationRegistry(js.allowInterop((SkDeletable deletable) {
+      // This is called when GC decides to collect the wrapper object and
+      // notify us, which may happen after the object is already deleted
+      // explicitly, e.g. when its ref count drops to zero. When that happens
+      // skip collection of this object.
+      if (!deletable.isDeleted()) {
+        collect(deletable);
+      }
+    }));
+  }
+
+  late final SkObjectFinalizationRegistry _skObjectFinalizationRegistry;
+  List<SkDeletable> _skiaObjectCollectionQueue = <SkDeletable>[];
+  Timer? _skiaObjectCollectionTimer;
+
+  @override
+  void register(Object wrapper, SkDeletable deletable) {
+    if (Instrumentation.enabled) {
+      Instrumentation.instance.incrementCounter(
+        '${deletable.constructor.name} registered',
+      );
     }
-    _skObjectDeleteQueue = <SkDeletable>[];
+    _skObjectFinalizationRegistry.register(wrapper, deletable);
+  }
 
-    // Null out the timer so we can schedule a new one next time objects are
-    // scheduled for deletion.
-    _skObjectCollector = null;
+  /// Schedules a Skia object for deletion in an asap timer.
+  ///
+  /// A timer is used for the following reasons:
+  ///
+  ///  - Deleting the object immediately may lead to dangling pointer as the Skia
+  ///    object may still be used by a function in the current frame. For example,
+  ///    a `CkPaint` + `SkPaint` pair may be created by the framework, passed to
+  ///    the engine, and the `CkPaint` dropped immediately. Because GC can kick in
+  ///    any time, including in the middle of the event, we may delete `SkPaint`
+  ///    prematurely.
+  ///  - A microtask, while solves the problem above, would prevent the event from
+  ///    yielding to the graphics system to render the frame on the screen if there
+  ///    is a large number of objects to delete, causing jank.
+  ///
+  /// Because scheduling a timer is expensive, the timer is shared by all objects
+  /// deleted this frame. No timer is created if no objects were scheduled for
+  /// deletion.
+  @override
+  void collect(SkDeletable deletable) {
+    assert(
+      !deletable.isDeleted(),
+      'Attempted to delete an already deleted Skia object.',
+    );
+    _skiaObjectCollectionQueue.add(deletable);
+
+    _skiaObjectCollectionTimer ??= Timer(Duration.zero, () {
+      // Null out the timer so we can schedule a new one next time objects are
+      // scheduled for deletion.
+      _skiaObjectCollectionTimer = null;
+      collectSkiaObjectsNow();
+    });
+  }
+
+  /// Deletes all Skia objects pending deletion synchronously.
+  ///
+  /// After calling this method [_skiaObjectCollectionQueue] is empty.
+  ///
+  /// Throws a [SkiaObjectCollectionError] if CanvasKit fails to delete at least
+  /// one object. The error is populated with information about the first failed
+  /// object. Upon an error the collection continues and the collection queue is
+  /// emptied out to prevent memory leaks. This may happen, for example, when the
+  /// same object is deleted more than once.
+  void collectSkiaObjectsNow() {
+    html.window.performance.mark('SkObject collection-start');
+    final int length = _skiaObjectCollectionQueue.length;
+    dynamic firstError;
+    StackTrace? firstStackTrace;
+    for (int i = 0; i < length; i++) {
+      final SkDeletable deletable = _skiaObjectCollectionQueue[i];
+      if (deletable.isDeleted()) {
+        // Some Skia objects are ref counted and are deleted before GC and/or
+        // the collection timer begins collecting them. So we have to check
+        // again if the objects is worth collecting.
+        continue;
+      }
+      if (Instrumentation.enabled) {
+        Instrumentation.instance.incrementCounter(
+          '${deletable.constructor.name} deleted',
+        );
+      }
+      try {
+        deletable.delete();
+      } catch (error, stackTrace) {
+        // Remember the error, but keep going. If for some reason CanvasKit fails
+        // to delete an object we still want to delete other objects and empty
+        // out the queue. Otherwise, the queue will never be flushed and keep
+        // accumulating objects, a.k.a. memory leak.
+        if (firstError == null) {
+          firstError = error;
+          firstStackTrace = stackTrace;
+        }
+      }
+    }
+    _skiaObjectCollectionQueue = <SkDeletable>[];
+
     html.window.performance.mark('SkObject collection-end');
     html.window.performance.measure('SkObject collection',
         'SkObject collection-start', 'SkObject collection-end');
-  });
+
+    // It's safe to throw the error here, now that we've processed the queue.
+    if (firstError != null) {
+      throw SkiaObjectCollectionError(firstError, firstStackTrace);
+    }
+  }
+}
+
+/// Thrown by [ProductionCollector] when Skia object collection fails.
+class SkiaObjectCollectionError implements Error {
+  SkiaObjectCollectionError(this.error, this.stackTrace);
+
+  final dynamic error;
+
+  @override
+  final StackTrace? stackTrace;
+
+  @override
+  String toString() => 'SkiaObjectCollectionError: $error\n$stackTrace';
 }
 
 /// Any Skia object that has a `delete` method.
@@ -1776,6 +2009,24 @@ void _scheduleSkObjectCollection(SkDeletable deletable) {
 class SkDeletable {
   /// Deletes the C++ side object.
   external void delete();
+
+  /// Returns whether the correcponding C++ object has been deleted.
+  external bool isDeleted();
+
+  /// Returns the JavaScript constructor for this object.
+  ///
+  /// This is useful for debugging.
+  external JsConstructor get constructor;
+}
+
+@JS()
+@anonymous
+class JsConstructor {
+  /// The name of the "constructor", typically the function name called with
+  /// the `new` keyword, or the ES6 class name.
+  ///
+  /// This is useful for debugging.
+  external String get name;
 }
 
 /// Attaches a weakly referenced object to another object and calls a finalizer
@@ -1809,7 +2060,8 @@ bool browserSupportsFinalizationRegistry =
 
 /// Sets the value of [browserSupportsFinalizationRegistry] to its true value.
 void debugResetBrowserSupportsFinalizationRegistry() {
-  browserSupportsFinalizationRegistry = _finalizationRegistryConstructor != null;
+  browserSupportsFinalizationRegistry =
+      _finalizationRegistryConstructor != null;
 }
 
 @JS()

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// @dart = 2.10
+// @dart = 2.12
 part of dart.ui;
 
 /// Signature of callbacks that have no arguments and return no data.
@@ -27,6 +27,12 @@ typedef TimingsCallback = void Function(List<FrameTiming> timings);
 
 /// Signature for [PlatformDispatcher.onPointerDataPacket].
 typedef PointerDataPacketCallback = void Function(PointerDataPacket packet);
+
+// Signature for the response to KeyDataCallback.
+typedef _KeyDataResponseCallback = void Function(int responseId, bool handled);
+
+/// Signature for [PlatformDispatcher.onKeyData].
+typedef KeyDataCallback = bool Function(KeyData data);
 
 /// Signature for [PlatformDispatcher.onSemanticsAction].
 typedef SemanticsActionCallback = void Function(int id, SemanticsAction action, ByteData? args);
@@ -332,6 +338,63 @@ class PlatformDispatcher {
     return PointerDataPacket(data: data);
   }
 
+  /// Called by [_dispatchKeyData].
+  void _respondToKeyData(int responseId, bool handled)
+      native 'PlatformConfiguration_respondToKeyData';
+
+  /// A callback that is invoked when key data is available.
+  ///
+  /// The framework invokes this callback in the same zone in which the callback
+  /// was set.
+  KeyDataCallback? get onKeyData => _onKeyData;
+  KeyDataCallback? _onKeyData;
+  Zone _onKeyDataZone = Zone.root;
+  set onKeyData(KeyDataCallback? callback) {
+    _onKeyData = callback;
+    _onKeyDataZone = Zone.current;
+  }
+
+  // Called from the engine, via hooks.dart
+  void _dispatchKeyData(ByteData packet, int responseId) {
+    _invoke2<KeyData, _KeyDataResponseCallback>(
+      (KeyData data, _KeyDataResponseCallback callback) {
+        callback(responseId, onKeyData != null && onKeyData!(data));
+      },
+      _onKeyDataZone,
+      _unpackKeyData(packet),
+      _respondToKeyData,
+    );
+  }
+
+  // If this value changes, update the encoding code in the following files:
+  //
+  //  * key_data.h
+  //  * key.dart (ui)
+  //  * key.dart (web_ui)
+  //  * HardwareKeyboard.java
+  static const int _kKeyDataFieldCount = 5;
+
+  // The packet structure is described in `key_data_packet.h`.
+  static KeyData _unpackKeyData(ByteData packet) {
+    const int kStride = Int64List.bytesPerElement;
+
+    int offset = 0;
+    final int charDataSize = packet.getUint64(kStride * offset++, _kFakeHostEndian);
+    final String? character = charDataSize == 0 ? null : utf8.decoder.convert(
+          packet.buffer.asUint8List(kStride * (offset + _kKeyDataFieldCount), charDataSize));
+
+    final KeyData keyData = KeyData(
+      timeStamp: Duration(microseconds: packet.getUint64(kStride * offset++, _kFakeHostEndian)),
+      type: KeyEventType.values[packet.getInt64(kStride * offset++, _kFakeHostEndian)],
+      physical: packet.getUint64(kStride * offset++, _kFakeHostEndian),
+      logical: packet.getUint64(kStride * offset++, _kFakeHostEndian),
+      character: character,
+      synthesized: packet.getUint64(kStride * offset++, _kFakeHostEndian) != 0,
+    );
+
+    return keyData;
+  }
+
   /// A callback that is invoked to report the [FrameTiming] of recently
   /// rasterized frames.
   ///
@@ -370,10 +433,10 @@ class PlatformDispatcher {
 
   // Called from the engine, via hooks.dart
   void _reportTimings(List<int> timings) {
-    assert(timings.length % FramePhase.values.length == 0);
+    assert(timings.length % (FramePhase.values.length + 1) == 0);
     final List<FrameTiming> frameTimings = <FrameTiming>[];
-    for (int i = 0; i < timings.length; i += FramePhase.values.length) {
-      frameTimings.add(FrameTiming._(timings.sublist(i, i + FramePhase.values.length)));
+    for (int i = 0; i < timings.length; i += FramePhase.values.length + 1) {
+      frameTimings.add(FrameTiming._(timings.sublist(i, i + FramePhase.values.length + 1)));
     }
     _invoke1(onReportTimings, _onReportTimingsZone, frameTimings);
   }
@@ -549,9 +612,10 @@ class PlatformDispatcher {
   /// This is the first locale selected by the user and is the user's primary
   /// locale (the locale the device UI is displayed in)
   ///
-  /// This is equivalent to `locales.first` and will provide an empty non-null
-  /// locale if the [locales] list has not been set or is empty.
-  Locale get locale => locales.first;
+  /// This is equivalent to `locales.first`, except that it will provide an
+  /// undefined (using the language tag "und") non-null locale if the [locales]
+  /// list has not been set or is empty.
+  Locale get locale => locales.isEmpty ? const Locale.fromSubtags() : locales.first;
 
   /// The full system-reported supported locales of the device.
   ///
@@ -580,7 +644,7 @@ class PlatformDispatcher {
   /// platform specific APIs without invoking method channels.
   Locale? computePlatformResolvedLocale(List<Locale> supportedLocales) {
     final List<String?> supportedLocalesData = <String?>[];
-    for (Locale locale in supportedLocales) {
+    for (final Locale locale in supportedLocales) {
       supportedLocalesData.add(locale.languageCode);
       supportedLocalesData.add(locale.countryCode);
       supportedLocalesData.add(locale.scriptCode);
@@ -609,7 +673,7 @@ class PlatformDispatcher {
   ///    observe when this callback is invoked.
   VoidCallback? get onLocaleChanged => _onLocaleChanged;
   VoidCallback? _onLocaleChanged;
-  Zone _onLocaleChangedZone = Zone.root; // ignore: unused_field
+  Zone _onLocaleChangedZone = Zone.root;
   set onLocaleChanged(VoidCallback? callback) {
     _onLocaleChanged = callback;
     _onLocaleChangedZone = Zone.current;
@@ -811,6 +875,29 @@ class PlatformDispatcher {
   set onSemanticsAction(SemanticsActionCallback? callback) {
     _onSemanticsAction = callback;
     _onSemanticsActionZone = Zone.current;
+  }
+
+  // Called from the engine via hooks.dart.
+  void _updateFrameData(int frameNumber) {
+    final FrameData previous = _frameData;
+    if (previous.frameNumber == frameNumber) {
+      return;
+    }
+    _frameData = FrameData._(frameNumber: frameNumber);
+    _invoke(onFrameDataChanged, _onFrameDataChangedZone);
+  }
+
+  /// The [FrameData] object for the current frame.
+  FrameData get frameData => _frameData;
+  FrameData _frameData = const FrameData._();
+
+  /// A callback that is invoked when the window updates the [FrameData].
+  VoidCallback? get onFrameDataChanged => _onFrameDataChanged;
+  VoidCallback? _onFrameDataChanged;
+  Zone _onFrameDataChangedZone = Zone.root;
+  set onFrameDataChanged(VoidCallback? callback) {
+    _onFrameDataChanged = callback;
+    _onFrameDataChangedZone = Zone.current;
   }
 
   // Called from the engine, via hooks.dart
@@ -1081,19 +1168,23 @@ class FrameTiming {
   ///
   /// This constructor is used for unit test only. Real [FrameTiming]s should
   /// be retrieved from [PlatformDispatcher.onReportTimings].
+  ///
+  /// If the [frameNumber] is not provided, it defaults to `-1`.
   factory FrameTiming({
     required int vsyncStart,
     required int buildStart,
     required int buildFinish,
     required int rasterStart,
     required int rasterFinish,
+    int frameNumber = -1,
   }) {
     return FrameTiming._(<int>[
       vsyncStart,
       buildStart,
       buildFinish,
       rasterStart,
-      rasterFinish
+      rasterFinish,
+      frameNumber,
     ]);
   }
 
@@ -1105,7 +1196,7 @@ class FrameTiming {
   /// This constructor is usually only called by the Flutter engine, or a test.
   /// To get the [FrameTiming] of your app, see [PlatformDispatcher.onReportTimings].
   FrameTiming._(this._timestamps)
-      : assert(_timestamps.length == FramePhase.values.length);
+      : assert(_timestamps.length == FramePhase.values.length + 1);
 
   /// This is a raw timestamp in microseconds from some epoch. The epoch in all
   /// [FrameTiming] is the same, but it may not match [DateTime]'s epoch.
@@ -1150,13 +1241,16 @@ class FrameTiming {
   /// See also [vsyncOverhead], [buildDuration] and [rasterDuration].
   Duration get totalSpan => _rawDuration(FramePhase.rasterFinish) - _rawDuration(FramePhase.vsyncStart);
 
+  /// The frame key associated with this frame measurement.
+  int get frameNumber => _timestamps.last;
+
   final List<int> _timestamps;  // in microseconds
 
   String _formatMS(Duration duration) => '${duration.inMicroseconds * 0.001}ms';
 
   @override
   String toString() {
-    return '$runtimeType(buildDuration: ${_formatMS(buildDuration)}, rasterDuration: ${_formatMS(rasterDuration)}, vsyncOverhead: ${_formatMS(vsyncOverhead)}, totalSpan: ${_formatMS(totalSpan)})';
+    return '$runtimeType(buildDuration: ${_formatMS(buildDuration)}, rasterDuration: ${_formatMS(rasterDuration)}, vsyncOverhead: ${_formatMS(vsyncOverhead)}, totalSpan: ${_formatMS(totalSpan)}, frameNumber: ${_timestamps.last})';
   }
 }
 
@@ -1285,8 +1379,8 @@ class Locale {
   ///
   /// The subtag values are _case sensitive_ and must be one of the valid
   /// subtags according to CLDR supplemental data:
-  /// [language](http://unicode.org/cldr/latest/common/validity/language.xml),
-  /// [region](http://unicode.org/cldr/latest/common/validity/region.xml). The
+  /// [language](https://github.com/unicode-org/cldr/blob/master/common/validity/language.xml),
+  /// [region](https://github.com/unicode-org/cldr/blob/master/common/validity/region.xml). The
   /// primary language subtag must be at least two and at most eight lowercase
   /// letters, but not four letters. The region region subtag must be two
   /// uppercase letters or three digits. See the [Unicode Language
@@ -1303,7 +1397,7 @@ class Locale {
   const Locale(
     this._languageCode, [
     this._countryCode,
-  ]) : assert(_languageCode != null), // ignore: unnecessary_null_comparison
+  ]) : assert(_languageCode != null),
        assert(_languageCode != ''),
        scriptCode = null;
 
@@ -1313,10 +1407,14 @@ class Locale {
   ///
   /// The subtag values are _case sensitive_ and must be valid subtags according
   /// to CLDR supplemental data:
-  /// [language](http://unicode.org/cldr/latest/common/validity/language.xml),
-  /// [script](http://unicode.org/cldr/latest/common/validity/script.xml) and
-  /// [region](http://unicode.org/cldr/latest/common/validity/region.xml) for
+  /// [language](https://github.com/unicode-org/cldr/blob/master/common/validity/language.xml),
+  /// [script](https://github.com/unicode-org/cldr/blob/master/common/validity/script.xml) and
+  /// [region](https://github.com/unicode-org/cldr/blob/master/common/validity/region.xml) for
   /// each of languageCode, scriptCode and countryCode respectively.
+  ///
+  /// The [languageCode] subtag is optional. When there is no language subtag,
+  /// the parameter should be omitted or set to "und". When not supplied, the
+  /// [languageCode] defaults to "und", an undefined language code.
   ///
   /// The [countryCode] subtag is optional. When there is no country subtag,
   /// the parameter should be omitted or passed `null` instead of an empty-string.
@@ -1327,7 +1425,7 @@ class Locale {
     String languageCode = 'und',
     this.scriptCode,
     String? countryCode,
-  }) : assert(languageCode != null), // ignore: unnecessary_null_comparison
+  }) : assert(languageCode != null),
        assert(languageCode != ''),
        _languageCode = languageCode,
        assert(scriptCode != ''),
@@ -1351,7 +1449,7 @@ class Locale {
   ///
   /// This must be a valid Unicode Language subtag as listed in [Unicode CLDR
   /// supplemental
-  /// data](http://unicode.org/cldr/latest/common/validity/language.xml).
+  /// data](https://github.com/unicode-org/cldr/blob/master/common/validity/language.xml).
   ///
   /// See also:
   ///
@@ -1449,7 +1547,7 @@ class Locale {
   ///
   /// This must be a valid Unicode Language Identifier script subtag as listed
   /// in [Unicode CLDR supplemental
-  /// data](http://unicode.org/cldr/latest/common/validity/script.xml).
+  /// data](https://github.com/unicode-org/cldr/blob/master/common/validity/script.xml).
   ///
   /// See also:
   ///

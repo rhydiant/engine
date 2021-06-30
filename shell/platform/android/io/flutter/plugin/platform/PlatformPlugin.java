@@ -15,6 +15,7 @@ import android.view.SoundEffectConstants;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import androidx.activity.OnBackPressedDispatcherOwner;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
@@ -30,9 +31,29 @@ public class PlatformPlugin {
 
   private final Activity activity;
   private final PlatformChannel platformChannel;
+  private final PlatformPluginDelegate platformPluginDelegate;
   private PlatformChannel.SystemChromeStyle currentTheme;
   private int mEnabledOverlays;
   private static final String TAG = "PlatformPlugin";
+
+  /**
+   * The {@link PlatformPlugin} generally has default behaviors implemented for platform
+   * functionalities requested by the Flutter framework. However, functionalities exposed through
+   * this interface could be customized by the more public-facing APIs that implement this interface
+   * such as the {@link io.flutter.embedding.android.FlutterActivity} or the {@link
+   * io.flutter.embedding.android.FlutterFragment}.
+   */
+  public interface PlatformPluginDelegate {
+    /**
+     * Allow implementer to customize the behavior needed when the Flutter framework calls to pop
+     * the Android-side navigation stack.
+     *
+     * @return true if the implementation consumed the pop signal. If false, a default behavior of
+     *     finishing the activity or sending the signal to {@link
+     *     androidx.activity.OnBackPressedDispatcher} will be executed.
+     */
+    boolean popSystemNavigator();
+  }
 
   @VisibleForTesting
   final PlatformChannel.PlatformMessageHandler mPlatformMessageHandler =
@@ -62,6 +83,16 @@ public class PlatformPlugin {
         @Override
         public void showSystemOverlays(@NonNull List<PlatformChannel.SystemUiOverlay> overlays) {
           setSystemChromeEnabledSystemUIOverlays(overlays);
+        }
+
+        @Override
+        public void showSystemUiMode(@NonNull PlatformChannel.SystemUiMode mode) {
+          setSystemChromeEnabledSystemUIMode(mode);
+        }
+
+        @Override
+        public void setSystemUiChangeListener() {
+          setSystemChromeChangeListener();
         }
 
         @Override
@@ -101,9 +132,15 @@ public class PlatformPlugin {
       };
 
   public PlatformPlugin(Activity activity, PlatformChannel platformChannel) {
+    this(activity, platformChannel, null);
+  }
+
+  public PlatformPlugin(
+      Activity activity, PlatformChannel platformChannel, PlatformPluginDelegate delegate) {
     this.activity = activity;
     this.platformChannel = platformChannel;
     this.platformChannel.setPlatformMessageHandler(mPlatformMessageHandler);
+    this.platformPluginDelegate = delegate;
 
     mEnabledOverlays = DEFAULT_SYSTEM_UI;
   }
@@ -161,13 +198,14 @@ public class PlatformPlugin {
       return;
     }
 
-    // Linter refuses to believe we're only executing this code in API 28 unless we use distinct if
+    // Linter refuses to believe we're only executing this code in API 28 unless we
+    // use distinct if
     // blocks and
     // hardcode the API 28 constant.
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P
         && Build.VERSION.SDK_INT > Build.VERSION_CODES.LOLLIPOP) {
       activity.setTaskDescription(
-          new TaskDescription(description.label, /*icon=*/ null, description.color));
+          new TaskDescription(description.label, /* icon= */ null, description.color));
     }
     if (Build.VERSION.SDK_INT >= 28) {
       TaskDescription taskDescription =
@@ -176,16 +214,113 @@ public class PlatformPlugin {
     }
   }
 
-  private void setSystemChromeEnabledSystemUIOverlays(
-      List<PlatformChannel.SystemUiOverlay> overlaysToShow) {
-    // Start by assuming we want to hide all system overlays (like an immersive game).
+  private void setSystemChromeChangeListener() {
+    // Set up a listener to notify the framework when the system ui has changed.
+    View decorView = activity.getWindow().getDecorView();
+    decorView.setOnSystemUiVisibilityChangeListener(
+        new View.OnSystemUiVisibilityChangeListener() {
+          @Override
+          public void onSystemUiVisibilityChange(int visibility) {
+            if ((visibility & View.SYSTEM_UI_FLAG_FULLSCREEN) == 0) {
+              // The system bars are visible. Make any desired adjustments to
+              // your UI, such as showing the action bar or other navigational
+              // controls. Another common action is to set a timer to dismiss
+              // the system bars and restore the fullscreen mode that was
+              // previously enabled.
+              platformChannel.systemChromeChanged(false);
+            } else {
+              // The system bars are NOT visible. Make any desired adjustments
+              // to your UI, such as hiding the action bar or other
+              // navigational controls.
+              platformChannel.systemChromeChanged(true);
+            }
+          }
+        });
+  }
+
+  private void setSystemChromeEnabledSystemUIMode(PlatformChannel.SystemUiMode systemUiMode) {
     int enabledOverlays =
         DEFAULT_SYSTEM_UI
             | View.SYSTEM_UI_FLAG_FULLSCREEN
             | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
             | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
 
-    // The SYSTEM_UI_FLAG_IMMERSIVE_STICKY flag was introduced in API 19, so we apply it
+    if (systemUiMode == PlatformChannel.SystemUiMode.LEAN_BACK
+        && Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+      // LEAN BACK
+      // Available starting at SDK 16
+      // Should not show overlays, tap to reveal overlays, needs onChange callback
+      // When the overlays come in on tap, the app does not recieve the gesture and does not know
+      // the system overlay has changed. The overlays cannot be dismissed, so adding the callback
+      // support will allow users to restore the system ui and dismiss the overlays.
+      // Not compatible with top/bottom overlays enabled.
+      enabledOverlays =
+          View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+              | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+              | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+              | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+              | View.SYSTEM_UI_FLAG_FULLSCREEN;
+    } else if (systemUiMode == PlatformChannel.SystemUiMode.IMMERSIVE
+        && Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+      // IMMERSIVE
+      // Available starting at 19
+      // Should not show overlays, swipe from edges to reveal overlays, needs onChange callback
+      // When the overlays come in on swipe, the app does not receive the gesture and does not know
+      // the system overlay has changed. The overlays cannot be dismissed, so adding callback
+      // support will allow users to restore the system ui and dismiss the overlays.
+      // Not compatible with top/bottom overlays enabled.
+      enabledOverlays =
+          View.SYSTEM_UI_FLAG_IMMERSIVE
+              | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+              | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+              | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+              | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+              | View.SYSTEM_UI_FLAG_FULLSCREEN;
+    } else if (systemUiMode == PlatformChannel.SystemUiMode.IMMERSIVE_STICKY
+        && Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+      // STICKY IMMERSIVE
+      // Available starting at 19
+      // Should not show overlays, swipe from edges to reveal overlays. The app will also receive
+      // the swipe gesture. The overlays cannot be dismissed, so adding callback support will
+      // allow users to restore the system ui and dismiss the overlays.
+      // Not compatible with top/bottom overlays enabled.
+      enabledOverlays =
+          View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+              | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+              | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+              | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+              | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+              | View.SYSTEM_UI_FLAG_FULLSCREEN;
+    } else if (systemUiMode == PlatformChannel.SystemUiMode.EDGE_TO_EDGE
+        && Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+      // EDGE TO EDGE
+      // Available starting at 16
+      // SDK 29 and up will apply a translucent body scrim behind 2/3 button navigation bars
+      // to ensure contrast with buttons on the nav bar.
+      // SDK 28 and lower will support a transparent 2/3 button navigation bar.
+      // Overlays should be included and not removed.
+      enabledOverlays =
+          View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+              | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+              | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
+    }
+
+    mEnabledOverlays = enabledOverlays;
+    updateSystemUiOverlays();
+  }
+
+  private void setSystemChromeEnabledSystemUIOverlays(
+      List<PlatformChannel.SystemUiOverlay> overlaysToShow) {
+    // Start by assuming we want to hide all system overlays (like an immersive
+    // game).
+    int enabledOverlays =
+        DEFAULT_SYSTEM_UI
+            | View.SYSTEM_UI_FLAG_FULLSCREEN
+            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
+
+    // The SYSTEM_UI_FLAG_IMMERSIVE_STICKY flag was introduced in API 19, so we
+    // apply it
     // if desired, and if the current Android version is 19 or greater.
     if (overlaysToShow.size() == 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
       enabledOverlays |= View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
@@ -214,7 +349,8 @@ public class PlatformPlugin {
    * PlatformChannel.SystemChromeStyle}.
    *
    * <p>Updating the system UI Overlays is accomplished by altering the decor view of the {@link
-   * Window} associated with the {@link Activity} that was provided to this {@code PlatformPlugin}.
+   * Window} associated with the {@link android.app.Activity} that was provided to this {@code
+   * PlatformPlugin}.
    */
   public void updateSystemUiOverlays() {
     activity.getWindow().getDecorView().setSystemUiVisibility(mEnabledOverlays);
@@ -232,54 +368,90 @@ public class PlatformPlugin {
     Window window = activity.getWindow();
     View view = window.getDecorView();
     int flags = view.getSystemUiVisibility();
-    // You can change the navigation bar color (including translucent colors)
-    // in Android, but you can't change the color of the navigation buttons until Android O.
-    // LIGHT vs DARK effectively isn't supported until then.
-    // Build.VERSION_CODES.O
-    if (Build.VERSION.SDK_INT >= 26) {
-      if (systemChromeStyle.systemNavigationBarIconBrightness != null) {
-        switch (systemChromeStyle.systemNavigationBarIconBrightness) {
-          case DARK:
-            // View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-            flags |= 0x10;
-            break;
-          case LIGHT:
-            flags &= ~0x10;
-            break;
-        }
+
+    // SYSTEM STATUS BAR -------------------------------------------------------------------
+    // You can't change the color of the system status bar until SDK 21, and you can't change the
+    // color of the status icons until SDK 23. We only allow both starting at 23 to ensure buttons
+    // and icons can be visible when changing the background color.
+    // If transparent, SDK 29 and higher may apply a translucent scrim behind the bar to ensure
+    // proper contrast. This can be overridden with
+    // SystemChromeStyle.systemStatusBarContrastEnforced.
+    if (systemChromeStyle.statusBarIconBrightness != null && Build.VERSION.SDK_INT >= 23) {
+      switch (systemChromeStyle.statusBarIconBrightness) {
+        case DARK:
+          // View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+          flags |= 0x2000;
+          break;
+        case LIGHT:
+          flags &= ~0x2000;
+          break;
       }
-      if (systemChromeStyle.systemNavigationBarColor != null) {
-        window.setNavigationBarColor(systemChromeStyle.systemNavigationBarColor);
-      }
-    }
-    // Build.VERSION_CODES.M
-    if (Build.VERSION.SDK_INT >= 23) {
-      if (systemChromeStyle.statusBarIconBrightness != null) {
-        switch (systemChromeStyle.statusBarIconBrightness) {
-          case DARK:
-            // View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-            flags |= 0x2000;
-            break;
-          case LIGHT:
-            flags &= ~0x2000;
-            break;
-        }
-      }
+
       if (systemChromeStyle.statusBarColor != null) {
         window.setStatusBarColor(systemChromeStyle.statusBarColor);
       }
     }
+    // You can't override the enforced contrast for a transparent status bar until SDK 29.
+    // This overrides the translucent scrim that may be placed behind the bar on SDK 29+ to ensure
+    // contrast is appropriate when using full screen layout modes like Edge to Edge.
+    if (!systemChromeStyle.systemStatusBarContrastEnforced && Build.VERSION.SDK_INT >= 29) {
+      window.setStatusBarContrastEnforced(systemChromeStyle.systemStatusBarContrastEnforced);
+    }
+
+    // SYSTEM NAVIGATION BAR --------------------------------------------------------------
+    // You can't change the color of the system navigation bar until SDK 21, and you can't change
+    // the color of the navigation buttons until SDK 26. We only allow both starting at 26 to
+    // ensure buttons can be visible when changing the background color.
+    // If transparent, SDK 29 and higher may apply a translucent scrim behind 2/3 button navigation
+    // bars to ensure proper contrast. This can be overridden with
+    // SystemChromeStyle.systemNavigationBarContrastEnforced.
+    if (systemChromeStyle.systemNavigationBarIconBrightness != null
+        && Build.VERSION.SDK_INT >= 26) {
+      switch (systemChromeStyle.systemNavigationBarIconBrightness) {
+        case DARK:
+          // View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+          flags |= 0x10;
+          break;
+        case LIGHT:
+          flags &= ~0x10;
+          break;
+      }
+
+      if (systemChromeStyle.systemNavigationBarColor != null) {
+        window.setNavigationBarColor(systemChromeStyle.systemNavigationBarColor);
+      }
+    }
+    // You can't change the color of the navigation bar divider color until SDK 28.
     if (systemChromeStyle.systemNavigationBarDividerColor != null && Build.VERSION.SDK_INT >= 28) {
       window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
       window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
       window.setNavigationBarDividerColor(systemChromeStyle.systemNavigationBarDividerColor);
     }
+
+    // You can't override the enforced contrast for a transparent navigation bar until SDK 29.
+    // This overrides the translucent scrim that may be placed behind 2/3 button navigation bars on
+    // SDK 29+ to ensure contrast is appropriate when using full screen layout modes like
+    // Edge to Edge.
+    if (!systemChromeStyle.systemNavigationBarContrastEnforced && Build.VERSION.SDK_INT >= 29) {
+      window.setNavigationBarContrastEnforced(
+          systemChromeStyle.systemNavigationBarContrastEnforced);
+    }
+
     view.setSystemUiVisibility(flags);
     currentTheme = systemChromeStyle;
   }
 
   private void popSystemNavigator() {
-    activity.finish();
+    if (platformPluginDelegate != null && platformPluginDelegate.popSystemNavigator()) {
+      // A custom behavior was executed by the delegate. Don't execute default behavior.
+      return;
+    }
+
+    if (activity instanceof OnBackPressedDispatcherOwner) {
+      ((OnBackPressedDispatcherOwner) activity).getOnBackPressedDispatcher().onBackPressed();
+    } else {
+      activity.finish();
+    }
   }
 
   private CharSequence getClipboardData(PlatformChannel.ClipboardContentFormat format) {

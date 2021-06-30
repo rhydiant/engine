@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// @dart = 2.6
 import 'dart:html' as html;
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -29,7 +28,8 @@ void testMain() async {
   Future<void> _checkScreenshot(RecordingCanvas rc, String fileName,
       {Rect region = const Rect.fromLTWH(0, 0, 500, 240),
         double maxDiffRatePercent = 0.0, bool write: false}) async {
-    final EngineCanvas engineCanvas = BitmapCanvas(screenRect);
+    final EngineCanvas engineCanvas = BitmapCanvas(screenRect,
+        RenderStrategy());
 
     rc.endRecording();
     rc.apply(engineCanvas, screenRect);
@@ -38,7 +38,7 @@ void testMain() async {
     final html.Element sceneElement = html.Element.tag('flt-scene');
     try {
       sceneElement.append(engineCanvas.rootElement);
-      html.document.body.append(sceneElement);
+      html.document.body!.append(sceneElement);
       await matchGoldenFile('$fileName.png',
           region: region, maxDiffRatePercent: maxDiffRatePercent, write: write);
     } finally {
@@ -59,7 +59,7 @@ void testMain() async {
         RecordingCanvas(const Rect.fromLTRB(0, 0, 400, 300));
     canvas.save();
 
-    final Paint borderPaint = Paint()
+    final SurfacePaint borderPaint = SurfacePaint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1
       ..color = Color(0xFF000000);
@@ -73,12 +73,12 @@ void testMain() async {
       Color(0xFF656D78),];
     List<double> stops = <double>[0.0, 0.05, 0.4, 0.6, 0.9, 1.0];
 
-    EngineGradient sweepGradient = GradientSweep(Offset(0.5, 0.5),
+    GradientSweep sweepGradient = GradientSweep(Offset(0.5, 0.5),
         colors, stops, TileMode.clamp,
         0, 360.0 / 180.0 * math.pi,
         Matrix4.rotationZ(math.pi / 6.0).storage);
 
-    EngineGradient sweepGradientRotated = GradientSweep(Offset(0.5, 0.5),
+    GradientSweep sweepGradientRotated = GradientSweep(Offset(0.5, 0.5),
         colors, stops, TileMode.clamp,
         0, 360.0 / 180.0 * math.pi,
         Matrix4.rotationZ(math.pi / 6.0).storage);
@@ -88,13 +88,13 @@ void testMain() async {
     // Gradient with default center.
     Rect rectBounds = Rect.fromLTWH(10, 20, kBoxWidth, kBoxHeight);
     canvas.drawRect(rectBounds,
-        Paint()..shader = engineGradientToShader(sweepGradient, rectBounds));
+        SurfacePaint()..shader = engineGradientToShader(sweepGradient, rectBounds));
     canvas.drawRect(rectBounds, borderPaint);
 
     // Gradient with shifted center and rotation.
     rectBounds = rectBounds.translate(kBoxWidth + 10, 0);
     canvas.drawRect(rectBounds,
-        Paint()..shader = engineGradientToShader(sweepGradientRotated, Rect.fromLTWH(rectBounds.center.dx, rectBounds.top, rectBounds.width / 2, rectBounds.height)));
+        SurfacePaint()..shader = engineGradientToShader(sweepGradientRotated, Rect.fromLTWH(rectBounds.center.dx, rectBounds.top, rectBounds.width / 2, rectBounds.height)));
     canvas.drawRect(rectBounds, borderPaint);
 
     // Gradient with start/endangle.
@@ -105,7 +105,7 @@ void testMain() async {
 
     rectBounds = rectBounds.translate(kBoxWidth + 10, 0);
     canvas.drawRect(rectBounds,
-        new Paint()..shader = engineGradientToShader(sweepGradient, rectBounds));
+        SurfacePaint()..shader = engineGradientToShader(sweepGradient, rectBounds));
     canvas.drawRect(rectBounds, borderPaint);
 
     // Tile mode repeat
@@ -116,7 +116,7 @@ void testMain() async {
         Matrix4.rotationZ(math.pi / 6.0).storage);
 
     canvas.drawRect(rectBounds,
-        new Paint()..shader = engineGradientToShader(sweepGradient, rectBounds));
+        SurfacePaint()..shader = engineGradientToShader(sweepGradient, rectBounds));
     canvas.drawRect(rectBounds, borderPaint);
 
     // Tile mode mirror
@@ -126,7 +126,7 @@ void testMain() async {
         math.pi / 6, 3 * math.pi / 4,
         Matrix4.rotationZ(math.pi / 6.0).storage);
     canvas.drawRect(rectBounds,
-        new Paint()..shader = engineGradientToShader(sweepGradient, rectBounds));
+        SurfacePaint()..shader = engineGradientToShader(sweepGradient, rectBounds));
     canvas.drawRect(rectBounds, borderPaint);
 
     canvas.restore();
@@ -138,7 +138,7 @@ void testMain() async {
     RecordingCanvas(const Rect.fromLTRB(0, 0, 400, 300));
     canvas.save();
 
-    final Paint borderPaint = Paint()
+    final SurfacePaint borderPaint = SurfacePaint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1
       ..color = Color(0xFF000000);
@@ -152,12 +152,12 @@ void testMain() async {
       Color(0xFF656D78),];
     List<double> stops = <double>[0.0, 0.05, 0.4, 0.6, 0.9, 1.0];
 
-    EngineGradient sweepGradient = GradientSweep(Offset(0.5, 0.5),
+    GradientSweep sweepGradient = GradientSweep(Offset(0.5, 0.5),
         colors, stops, TileMode.clamp,
         0, 360.0 / 180.0 * math.pi,
         Matrix4.rotationZ(math.pi / 6.0).storage);
 
-    EngineGradient sweepGradientRotated = GradientSweep(Offset(0.5, 0.5),
+    GradientSweep sweepGradientRotated = GradientSweep(Offset(0.5, 0.5),
         colors, stops, TileMode.clamp,
         0, 360.0 / 180.0 * math.pi,
         Matrix4.rotationZ(math.pi / 6.0).storage);
@@ -167,13 +167,13 @@ void testMain() async {
     // Gradient with default center.
     Rect rectBounds = Rect.fromLTWH(10, 20, kBoxWidth, kBoxHeight);
     canvas.drawOval(rectBounds,
-        Paint()..shader = engineGradientToShader(sweepGradient, rectBounds));
+        SurfacePaint()..shader = engineGradientToShader(sweepGradient, rectBounds));
     canvas.drawRect(rectBounds, borderPaint);
 
     // Gradient with shifted center and rotation.
     rectBounds = rectBounds.translate(kBoxWidth + 10, 0);
     canvas.drawOval(rectBounds,
-        Paint()..shader = engineGradientToShader(sweepGradientRotated, Rect.fromLTWH(rectBounds.center.dx, rectBounds.top, rectBounds.width / 2, rectBounds.height)));
+        SurfacePaint()..shader = engineGradientToShader(sweepGradientRotated, Rect.fromLTWH(rectBounds.center.dx, rectBounds.top, rectBounds.width / 2, rectBounds.height)));
     canvas.drawRect(rectBounds, borderPaint);
 
     // Gradient with start/endangle.
@@ -184,7 +184,7 @@ void testMain() async {
 
     rectBounds = rectBounds.translate(kBoxWidth + 10, 0);
     canvas.drawOval(rectBounds,
-        new Paint()..shader = engineGradientToShader(sweepGradient, rectBounds));
+        SurfacePaint()..shader = engineGradientToShader(sweepGradient, rectBounds));
     canvas.drawRect(rectBounds, borderPaint);
 
     // Tile mode repeat
@@ -195,7 +195,7 @@ void testMain() async {
         Matrix4.rotationZ(math.pi / 6.0).storage);
 
     canvas.drawOval(rectBounds,
-        new Paint()..shader = engineGradientToShader(sweepGradient, rectBounds));
+        SurfacePaint()..shader = engineGradientToShader(sweepGradient, rectBounds));
     canvas.drawRect(rectBounds, borderPaint);
 
     // Tile mode mirror
@@ -205,7 +205,7 @@ void testMain() async {
         math.pi / 6, 3 * math.pi / 4,
         Matrix4.rotationZ(math.pi / 6.0).storage);
     canvas.drawOval(rectBounds,
-        new Paint()..shader = engineGradientToShader(sweepGradient, rectBounds));
+        SurfacePaint()..shader = engineGradientToShader(sweepGradient, rectBounds));
     canvas.drawRect(rectBounds, borderPaint);
 
     canvas.restore();
@@ -217,7 +217,7 @@ void testMain() async {
     RecordingCanvas(const Rect.fromLTRB(0, 0, 400, 300));
     canvas.save();
 
-    final Paint borderPaint = Paint()
+    final SurfacePaint borderPaint = SurfacePaint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1
       ..color = Color(0xFF000000);
@@ -231,12 +231,12 @@ void testMain() async {
       Color(0xFF656D78),];
     List<double> stops = <double>[0.0, 0.05, 0.4, 0.6, 0.9, 1.0];
 
-    EngineGradient sweepGradient = GradientSweep(Offset(0.5, 0.5),
+    GradientSweep sweepGradient = GradientSweep(Offset(0.5, 0.5),
         colors, stops, TileMode.clamp,
         0, 360.0 / 180.0 * math.pi,
         Matrix4.rotationZ(math.pi / 6.0).storage);
 
-    EngineGradient sweepGradientRotated = GradientSweep(Offset(0.5, 0.5),
+    GradientSweep sweepGradientRotated = GradientSweep(Offset(0.5, 0.5),
         colors, stops, TileMode.clamp,
         0, 360.0 / 180.0 * math.pi,
         Matrix4.rotationZ(math.pi / 6.0).storage);
@@ -247,14 +247,14 @@ void testMain() async {
     Rect rectBounds = Rect.fromLTWH(10, 20, kBoxWidth, kBoxHeight);
     Path path = samplePathFromRect(rectBounds);
     canvas.drawPath(path,
-        Paint()..shader = engineGradientToShader(sweepGradient, rectBounds));
+        SurfacePaint()..shader = engineGradientToShader(sweepGradient, rectBounds));
     canvas.drawRect(rectBounds, borderPaint);
 
     // Gradient with shifted center and rotation.
     rectBounds = rectBounds.translate(kBoxWidth + 10, 0);
     path = samplePathFromRect(rectBounds);
     canvas.drawPath(path,
-        Paint()..shader = engineGradientToShader(sweepGradientRotated, Rect.fromLTWH(rectBounds.center.dx, rectBounds.top, rectBounds.width / 2, rectBounds.height)));
+        SurfacePaint()..shader = engineGradientToShader(sweepGradientRotated, Rect.fromLTWH(rectBounds.center.dx, rectBounds.top, rectBounds.width / 2, rectBounds.height)));
     canvas.drawRect(rectBounds, borderPaint);
 
     // Gradient with start/endangle.
@@ -266,7 +266,7 @@ void testMain() async {
     rectBounds = rectBounds.translate(kBoxWidth + 10, 0);
     path = samplePathFromRect(rectBounds);
     canvas.drawPath(path,
-        new Paint()..shader = engineGradientToShader(sweepGradient, rectBounds));
+        SurfacePaint()..shader = engineGradientToShader(sweepGradient, rectBounds));
     canvas.drawRect(rectBounds, borderPaint);
 
     // Tile mode repeat
@@ -278,7 +278,7 @@ void testMain() async {
 
     path = samplePathFromRect(rectBounds);
     canvas.drawPath(path,
-        new Paint()..shader = engineGradientToShader(sweepGradient, rectBounds));
+        SurfacePaint()..shader = engineGradientToShader(sweepGradient, rectBounds));
     canvas.drawRect(rectBounds, borderPaint);
 
     // Tile mode mirror
@@ -289,11 +289,142 @@ void testMain() async {
         Matrix4.rotationZ(math.pi / 6.0).storage);
     path = samplePathFromRect(rectBounds);
     canvas.drawPath(path,
-        new Paint()..shader = engineGradientToShader(sweepGradient, rectBounds));
+        SurfacePaint()..shader = engineGradientToShader(sweepGradient, rectBounds));
     canvas.drawRect(rectBounds, borderPaint);
 
     canvas.restore();
     await _checkScreenshot(canvas, 'sweep_gradient_path');
+  });
+
+  /// Regression test for https://github.com/flutter/flutter/issues/74137.
+  test('Paints rotated and shifted linear gradient', () async {
+    final RecordingCanvas canvas =
+    RecordingCanvas(const Rect.fromLTRB(0, 0, 400, 300));
+    canvas.save();
+
+    final SurfacePaint borderPaint = SurfacePaint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = Color(0xFF000000);
+
+    List<Color> colors = <Color>[
+      Color(0xFF000000),
+      Color(0xFFFF3C38),
+      Color(0xFFFF8C42),
+      Color(0xFFFFF275),
+      Color(0xFF6699CC),
+      Color(0xFF656D78),];
+    List<double> stops = <double>[0.0, 0.05, 0.4, 0.6, 0.9, 1.0];
+
+    GradientLinear linearGradient = GradientLinear(Offset(50, 50),
+        Offset(200,130),
+        colors, stops, TileMode.clamp,
+        Matrix4.identity().storage);
+
+    const double kBoxWidth = 150;
+    const double kBoxHeight = 80;
+    // Gradient with default center.
+    Rect rectBounds = Rect.fromLTWH(10, 20, kBoxWidth, kBoxHeight);
+    canvas.drawRect(rectBounds,
+        SurfacePaint()..shader = engineLinearGradientToShader(linearGradient, rectBounds));
+    canvas.drawRect(rectBounds, borderPaint);
+
+    // Tile mode repeat
+    rectBounds = Rect.fromLTWH(10, 110, kBoxWidth, kBoxHeight);
+    linearGradient = GradientLinear(Offset(50, 50),
+        Offset(200,130),
+        colors, stops, TileMode.repeated,
+        Matrix4.identity().storage);
+
+    canvas.drawRect(rectBounds,
+        SurfacePaint()..shader = engineLinearGradientToShader(linearGradient, rectBounds));
+    canvas.drawRect(rectBounds, borderPaint);
+
+    canvas.restore();
+    await _checkScreenshot(canvas, 'linear_gradient_rect_shifted');
+  });
+
+  /// Regression test for https://github.com/flutter/flutter/issues/82748.
+  test('Paints gradient with gradient stop outside range', () async {
+    final RecordingCanvas canvas =
+    RecordingCanvas(const Rect.fromLTRB(0, 0, 400, 300));
+    canvas.save();
+
+    final SurfacePaint borderPaint = SurfacePaint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = Color(0xFF000000);
+
+    List<Color> colors = <Color>[
+      Color(0xFF000000),
+      Color(0xFFFF3C38)];
+    List<double> stops = <double>[0.0, 10.0];
+
+    GradientLinear linearGradient = GradientLinear(Offset(50, 50),
+        Offset(200,130),
+        colors, stops, TileMode.clamp,
+        Matrix4.identity().storage);
+
+    const double kBoxWidth = 150;
+    const double kBoxHeight = 80;
+    // Gradient with default center.
+    Rect rectBounds = Rect.fromLTWH(10, 20, kBoxWidth, kBoxHeight);
+    canvas.drawRect(rectBounds,
+        SurfacePaint()..shader = engineLinearGradientToShader(linearGradient, rectBounds));
+    canvas.drawRect(rectBounds, borderPaint);
+    canvas.restore();
+
+    final EngineCanvas engineCanvas = BitmapCanvas(screenRect,
+        RenderStrategy());
+    canvas.endRecording();
+    canvas.apply(engineCanvas, screenRect);
+  });
+
+  test('Paints clamped, rotated and shifted linear gradient', () async {
+    final RecordingCanvas canvas =
+    RecordingCanvas(const Rect.fromLTRB(0, 0, 400, 300));
+    canvas.save();
+
+    final SurfacePaint borderPaint = SurfacePaint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = Color(0xFF000000);
+
+    List<Color> colors = <Color>[
+      Color(0xFF000000),
+      Color(0xFFFF3C38),
+      Color(0xFFFF8C42),
+      Color(0xFFFFF275),
+      Color(0xFF6699CC),
+      Color(0xFF656D78),];
+    List<double> stops = <double>[0.0, 0.05, 0.4, 0.6, 0.9, 1.0];
+
+    GradientLinear linearGradient = GradientLinear(Offset(50, 50),
+        Offset(200,130),
+        colors, stops, TileMode.clamp,
+        Matrix4.identity().storage);
+
+    const double kBoxWidth = 150;
+    const double kBoxHeight = 80;
+    // Gradient with default center.
+    Rect rectBounds = Rect.fromLTWH(10, 20, kBoxWidth, kBoxHeight);
+    canvas.drawRect(rectBounds,
+        SurfacePaint()..shader = engineLinearGradientToShader(linearGradient, rectBounds));
+    canvas.drawRect(rectBounds, borderPaint);
+
+    // Tile mode repeat
+    rectBounds = Rect.fromLTWH(10, 110, kBoxWidth, kBoxHeight);
+    linearGradient = GradientLinear(Offset(50, 50),
+        Offset(200,130),
+        colors, stops, TileMode.clamp,
+        Matrix4.identity().storage);
+
+    canvas.drawRect(rectBounds,
+        SurfacePaint()..shader = engineLinearGradientToShader(linearGradient, rectBounds));
+    canvas.drawRect(rectBounds, borderPaint);
+
+    canvas.restore();
+    await _checkScreenshot(canvas, 'linear_gradient_rect_clamp_rotated');
   });
 }
 
@@ -305,7 +436,15 @@ Shader engineGradientToShader(GradientSweep gradient, Rect rect) {
       gradient.startAngle,
       gradient.endAngle,
       gradient.matrix4 == null ? null :
-          Float64List.fromList(gradient.matrix4),
+          Float64List.fromList(gradient.matrix4!),
+  );
+}
+
+Shader engineLinearGradientToShader(GradientLinear gradient, Rect rect) {
+  return Gradient.linear(gradient.from, gradient.to,
+    gradient.colors, gradient.colorStops, gradient.tileMode,
+    gradient.matrix4 == null ? null : Float64List.fromList(
+        gradient.matrix4!.matrix),
   );
 }
 

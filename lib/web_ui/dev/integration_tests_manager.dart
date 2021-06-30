@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// @dart = 2.6
-
 import 'dart:io' as io;
 import 'package:args/args.dart';
 import 'package:path/path.dart' as pathlib;
@@ -182,8 +180,8 @@ class IntegrationTestsManager {
     final Set<String> renderingBackends = _getRenderingBackends();
     for (String renderingBackend in renderingBackends) {
       for (String mode in buildModes) {
-        if (!blockedTestsListsMapForModes[mode].contains(target) &&
-            !blockedTestsListsMapForRenderBackends[renderingBackend]
+        if (!blockedTestsListsMapForModes[mode]!.contains(target) &&
+            !blockedTestsListsMapForRenderBackends[renderingBackend]!
                 .contains(target)) {
           final bool result = await _runTestsInMode(directory, target,
               mode: mode, webRenderer: renderingBackend);
@@ -201,9 +199,9 @@ class IntegrationTestsManager {
       {String mode = 'profile', String webRenderer = 'html'}) async {
     String executable =
         _useSystemFlutter ? 'flutter' : environment.flutterCommand.path;
-    Map<String, String> enviroment = Map<String, String>();
+    Map<String, String> flutterEnvironment = Map<String, String>();
     if (_doUpdateScreenshotGoldens) {
-      enviroment['UPDATE_GOLDENS'] = 'true';
+      flutterEnvironment['UPDATE_GOLDENS'] = 'true';
     }
     final IntegrationArguments arguments =
         IntegrationArguments.fromBrowser(_browser);
@@ -211,7 +209,7 @@ class IntegrationTestsManager {
       executable,
       arguments.getTestArguments(testName, mode, webRenderer),
       workingDirectory: directory.path,
-      environment: enviroment,
+      environment: flutterEnvironment,
     );
 
     if (exitCode != 0) {
@@ -249,10 +247,9 @@ class IntegrationTestsManager {
         buildModes = <String>{mode};
       }
     } else {
-      // TODO(nurhan): Enable `release` when recipe is sharded.
       buildModes = _browser == 'chrome'
-          ? {'debug', 'profile'}
-          : {'profile'};
+          ? {'debug', 'profile', 'release'}
+          : {'profile', 'release'};
     }
     return buildModes;
   }
@@ -269,7 +266,7 @@ class IntegrationTestsManager {
     // Whether the project has the pubspec.yaml file.
     bool pubSpecFound = false;
     // The test directory 'test_driver'.
-    io.Directory testDirectory;
+    io.Directory? testDirectory;
 
     for (io.FileSystemEntity e in entities) {
       // The tests should be under this directories.
@@ -352,7 +349,7 @@ class IntegrationTestsManager {
         print('ERROR: Test driver file named has ${expectedDriverName} '
             'not found under directory ${testDirectory.path}. Stopping the '
             'integration tests. Please add ${expectedDriverName}. Check to '
-            'README file on more details on how to setup integration tests.');
+            'README file on more details on how to set up integration tests.');
       }
       throw StateError('Error in test files. Check the logs for '
           'further instructions');
@@ -509,7 +506,7 @@ class IntegrationTestsArgumentParser {
 
   /// If target name is provided integration tests can run that one test
   /// instead of running all the tests.
-  String testTarget;
+  late final String testTarget;
 
   /// The build mode to run the integration tests.
   ///
@@ -518,13 +515,13 @@ class IntegrationTestsArgumentParser {
   ///
   /// In order to skip a test for one of the modes, add the test to the
   /// `blockedTestsListsMapForModes` list for the relevant compile mode.
-  String buildMode;
+  late final String buildMode;
 
   /// Whether to use html, canvaskit or auto for web renderer.
   ///
   /// If not set all backends will be used one after another for integration
   /// tests. If set only the provided option will be used.
-  String webRenderer;
+  late final String webRenderer;
 
   void populateOptions(ArgParser argParser) {
     argParser
@@ -644,8 +641,18 @@ const Map<String, List<String>> blockedTestsListsMapForModes =
 // TODO(nurhan): Remove the failing test after fixing.
 const Map<String, List<String>> blockedTestsListsMapForRenderBackends =
     <String, List<String>>{
-  'auto': [],
+  'auto': [
+    'image_loading_integration.dart',
+    'platform_messages_integration.dart',
+    'profile_diagnostics_integration.dart',
+    'scroll_wheel_integration.dart',
+    'text_editing_integration.dart',
+    'treeshaking_integration.dart',
+    'url_strategy_integration.dart',
+  ],
   'html': [],
   // This test failed on canvaskit on all three build modes.
-  'canvaskit': ['image_loading_integration.dart'],
+  'canvaskit': [
+    'image_loading_integration.dart',
+  ],
 };

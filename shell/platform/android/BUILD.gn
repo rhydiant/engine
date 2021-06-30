@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//build/config/android/config.gni")
+import("//build/toolchain/clang.gni")
 import("//flutter/build/zip_bundle.gni")
 import("//flutter/common/config.gni")
 import("//flutter/shell/config.gni")
@@ -125,8 +126,8 @@ android_java_sources = [
   "io/flutter/app/FlutterActivityEvents.java",
   "io/flutter/app/FlutterApplication.java",
   "io/flutter/app/FlutterFragmentActivity.java",
+  "io/flutter/app/FlutterPlayStoreSplitApplication.java",
   "io/flutter/app/FlutterPluginRegistry.java",
-  "io/flutter/embedding/android/AndroidKeyProcessor.java",
   "io/flutter/embedding/android/AndroidTouchProcessor.java",
   "io/flutter/embedding/android/DrawableSplashScreen.java",
   "io/flutter/embedding/android/ExclusiveAppComponent.java",
@@ -142,6 +143,8 @@ android_java_sources = [
   "io/flutter/embedding/android/FlutterSurfaceView.java",
   "io/flutter/embedding/android/FlutterTextureView.java",
   "io/flutter/embedding/android/FlutterView.java",
+  "io/flutter/embedding/android/KeyChannelResponder.java",
+  "io/flutter/embedding/android/KeyboardManager.java",
   "io/flutter/embedding/android/MotionEventTracker.java",
   "io/flutter/embedding/android/RenderMode.java",
   "io/flutter/embedding/android/SplashScreen.java",
@@ -150,12 +153,15 @@ android_java_sources = [
   "io/flutter/embedding/engine/FlutterEngine.java",
   "io/flutter/embedding/engine/FlutterEngineCache.java",
   "io/flutter/embedding/engine/FlutterEngineConnectionRegistry.java",
+  "io/flutter/embedding/engine/FlutterEngineGroup.java",
   "io/flutter/embedding/engine/FlutterJNI.java",
   "io/flutter/embedding/engine/FlutterOverlaySurface.java",
   "io/flutter/embedding/engine/FlutterShellArgs.java",
   "io/flutter/embedding/engine/dart/DartExecutor.java",
   "io/flutter/embedding/engine/dart/DartMessenger.java",
   "io/flutter/embedding/engine/dart/PlatformMessageHandler.java",
+  "io/flutter/embedding/engine/deferredcomponents/DeferredComponentManager.java",
+  "io/flutter/embedding/engine/deferredcomponents/PlayStoreDeferredComponentManager.java",
   "io/flutter/embedding/engine/loader/ApplicationInfoLoader.java",
   "io/flutter/embedding/engine/loader/FlutterApplicationInfo.java",
   "io/flutter/embedding/engine/loader/FlutterLoader.java",
@@ -185,6 +191,7 @@ android_java_sources = [
   "io/flutter/embedding/engine/renderer/RenderSurface.java",
   "io/flutter/embedding/engine/renderer/SurfaceTextureWrapper.java",
   "io/flutter/embedding/engine/systemchannels/AccessibilityChannel.java",
+  "io/flutter/embedding/engine/systemchannels/DeferredComponentChannel.java",
   "io/flutter/embedding/engine/systemchannels/KeyEventChannel.java",
   "io/flutter/embedding/engine/systemchannels/LifecycleChannel.java",
   "io/flutter/embedding/engine/systemchannels/LocalizationChannel.java",
@@ -400,7 +407,10 @@ action("pom_libflutter") {
   artifact_id =
       string_replace(android_app_abi, "-", "_") + "_" + flutter_runtime_mode
 
-  outputs = [ "$root_build_dir/$artifact_id.pom" ]
+  outputs = [
+    "$root_build_dir/$artifact_id.pom",
+    "$root_build_dir/$artifact_id.maven-metadata.xml",
+  ]
 
   args = [
     "--destination",
@@ -419,7 +429,10 @@ action("pom_embedding") {
 
   artifact_id = "flutter_embedding_$flutter_runtime_mode"
 
-  outputs = [ "$root_build_dir/$artifact_id.pom" ]
+  outputs = [
+    "$root_build_dir/$artifact_id.pom",
+    "$root_build_dir/$artifact_id.maven-metadata.xml",
+  ]
 
   args = [
     "--destination",
@@ -445,16 +458,20 @@ action("robolectric_tests") {
     "test/io/flutter/FlutterInjectorTest.java",
     "test/io/flutter/FlutterTestSuite.java",
     "test/io/flutter/SmokeTest.java",
-    "test/io/flutter/embedding/android/AndroidKeyProcessorTest.java",
+    "test/io/flutter/TestUtils.java",
     "test/io/flutter/embedding/android/FlutterActivityAndFragmentDelegateTest.java",
     "test/io/flutter/embedding/android/FlutterActivityTest.java",
     "test/io/flutter/embedding/android/FlutterAndroidComponentTest.java",
     "test/io/flutter/embedding/android/FlutterFragmentActivityTest.java",
     "test/io/flutter/embedding/android/FlutterFragmentTest.java",
     "test/io/flutter/embedding/android/FlutterViewTest.java",
+    "test/io/flutter/embedding/android/KeyChannelResponderTest.java",
+    "test/io/flutter/embedding/android/KeyboardManagerTest.java",
     "test/io/flutter/embedding/android/RobolectricFlutterActivity.java",
+    "test/io/flutter/embedding/android/SplashShadowResources.java",
     "test/io/flutter/embedding/engine/FlutterEngineCacheTest.java",
     "test/io/flutter/embedding/engine/FlutterEngineConnectionRegistryTest.java",
+    "test/io/flutter/embedding/engine/FlutterEngineGroupComponentTest.java",
     "test/io/flutter/embedding/engine/FlutterEngineTest.java",
     "test/io/flutter/embedding/engine/FlutterJNITest.java",
     "test/io/flutter/embedding/engine/FlutterShellArgsTest.java",
@@ -462,15 +479,18 @@ action("robolectric_tests") {
     "test/io/flutter/embedding/engine/RenderingComponentTest.java",
     "test/io/flutter/embedding/engine/dart/DartExecutorTest.java",
     "test/io/flutter/embedding/engine/dart/DartMessengerTest.java",
+    "test/io/flutter/embedding/engine/deferredcomponents/PlayStoreDeferredComponentManagerTest.java",
     "test/io/flutter/embedding/engine/loader/ApplicationInfoLoaderTest.java",
     "test/io/flutter/embedding/engine/loader/FlutterLoaderTest.java",
     "test/io/flutter/embedding/engine/mutatorsstack/FlutterMutatorViewTest.java",
     "test/io/flutter/embedding/engine/plugins/shim/ShimPluginRegistryTest.java",
     "test/io/flutter/embedding/engine/renderer/FlutterRendererTest.java",
+    "test/io/flutter/embedding/engine/systemchannels/DeferredComponentChannelTest.java",
     "test/io/flutter/embedding/engine/systemchannels/KeyEventChannelTest.java",
     "test/io/flutter/embedding/engine/systemchannels/PlatformChannelTest.java",
     "test/io/flutter/embedding/engine/systemchannels/RestorationChannelTest.java",
     "test/io/flutter/external/FlutterLaunchTests.java",
+    "test/io/flutter/plugin/common/BinaryCodecTest.java",
     "test/io/flutter/plugin/common/StandardMessageCodecTest.java",
     "test/io/flutter/plugin/common/StandardMethodCodecTest.java",
     "test/io/flutter/plugin/editing/InputConnectionAdaptorTest.java",
@@ -549,6 +569,7 @@ zip_bundle("android") {
 
   deps = [
     ":android_jar",
+    ":android_javadoc",
     ":android_symbols",
   ]
 
@@ -563,8 +584,6 @@ zip_bundle("android") {
   }
 }
 
-# TODO(dnfield): make these targets pass.
-# https://github.com/flutter/flutter/issues/42400
 action("gen_android_javadoc") {
   script = "//flutter/tools/gen_javadoc.py"
   sources = android_java_sources + embedding_dependencies_jars
@@ -579,7 +598,10 @@ action("gen_android_javadoc") {
     rebase_path(target_gen_dir),
     "--third-party",
     rebase_path("//third_party"),
+    "--quiet",
   ]
+
+  deps = [ ":gen_android_build_config_java" ]
 }
 
 zip_bundle("android_javadoc") {

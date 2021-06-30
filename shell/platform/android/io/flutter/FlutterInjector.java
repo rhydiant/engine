@@ -4,8 +4,11 @@
 
 package io.flutter;
 
-import android.support.annotation.NonNull;
-import android.support.annotation.VisibleForTesting;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
+import io.flutter.embedding.engine.FlutterJNI;
+import io.flutter.embedding.engine.deferredcomponents.DeferredComponentManager;
 import io.flutter.embedding.engine.loader.FlutterLoader;
 
 /**
@@ -62,28 +65,54 @@ public final class FlutterInjector {
     instance = null;
   }
 
-  private FlutterInjector(@NonNull FlutterLoader flutterLoader) {
+  private FlutterInjector(
+      @NonNull FlutterLoader flutterLoader,
+      @Nullable DeferredComponentManager deferredComponentManager,
+      @NonNull FlutterJNI.Factory flutterJniFactory) {
     this.flutterLoader = flutterLoader;
+    this.deferredComponentManager = deferredComponentManager;
+    this.flutterJniFactory = flutterJniFactory;
   }
 
   private FlutterLoader flutterLoader;
+  private DeferredComponentManager deferredComponentManager;
+  private FlutterJNI.Factory flutterJniFactory;
 
-  /** Returns the {@link FlutterLoader} instance to use for the Flutter Android engine embedding. */
+  /**
+   * Returns the {@link io.flutter.embedding.engine.loader.FlutterLoader} instance to use for the
+   * Flutter Android engine embedding.
+   */
   @NonNull
   public FlutterLoader flutterLoader() {
     return flutterLoader;
   }
 
   /**
+   * Returns the {@link DeferredComponentManager} instance to use for the Flutter Android engine
+   * embedding.
+   */
+  @Nullable
+  public DeferredComponentManager deferredComponentManager() {
+    return deferredComponentManager;
+  }
+
+  @NonNull
+  public FlutterJNI.Factory getFlutterJNIFactory() {
+    return flutterJniFactory;
+  }
+
+  /**
    * Builder used to supply a custom FlutterInjector instance to {@link
    * FlutterInjector#setInstance(FlutterInjector)}.
    *
-   * <p>Non-overriden values have reasonable defaults.
+   * <p>Non-overridden values have reasonable defaults.
    */
   public static final class Builder {
     private FlutterLoader flutterLoader;
+    private DeferredComponentManager deferredComponentManager;
+    private FlutterJNI.Factory flutterJniFactory;
     /**
-     * Sets a {@link FlutterLoader} override.
+     * Sets a {@link io.flutter.embedding.engine.loader.FlutterLoader} override.
      *
      * <p>A reasonable default will be used if unspecified.
      */
@@ -92,10 +121,26 @@ public final class FlutterInjector {
       return this;
     }
 
+    public Builder setDeferredComponentManager(
+        @Nullable DeferredComponentManager deferredComponentManager) {
+      this.deferredComponentManager = deferredComponentManager;
+      return this;
+    }
+
+    public Builder setFlutterJNIFactory(@NonNull FlutterJNI.Factory factory) {
+      this.flutterJniFactory = factory;
+      return this;
+    }
+
     private void fillDefaults() {
-      if (flutterLoader == null) {
-        flutterLoader = new FlutterLoader();
+      if (flutterJniFactory == null) {
+        flutterJniFactory = new FlutterJNI.Factory();
       }
+
+      if (flutterLoader == null) {
+        flutterLoader = new FlutterLoader(flutterJniFactory.provideFlutterJNI());
+      }
+      // DeferredComponentManager's intended default is null.
     }
 
     /**
@@ -105,7 +150,7 @@ public final class FlutterInjector {
     public FlutterInjector build() {
       fillDefaults();
 
-      return new FlutterInjector(flutterLoader);
+      return new FlutterInjector(flutterLoader, deferredComponentManager, flutterJniFactory);
     }
   }
 }

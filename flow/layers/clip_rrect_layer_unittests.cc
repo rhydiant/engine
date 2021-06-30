@@ -36,7 +36,7 @@ TEST_F(ClipRRectLayerTest, PaintingEmptyLayerDies) {
                             "needs_painting\\(context\\)");
 }
 
-TEST_F(ClipRRectLayerTest, PaintBeforePreollDies) {
+TEST_F(ClipRRectLayerTest, PaintBeforePrerollDies) {
   const SkRect layer_bounds = SkRect::MakeXYWH(0.5, 1.0, 5.0, 6.0);
   const SkRRect layer_rrect = SkRRect::MakeRect(layer_bounds);
   auto layer = std::make_shared<ClipRRectLayer>(layer_rrect, Clip::hardEdge);
@@ -68,7 +68,7 @@ TEST_F(ClipRRectLayerTest, PaintingCulledLayerDies) {
   EXPECT_EQ(layer->paint_bounds(), child_bounds);
   EXPECT_TRUE(mock_layer->needs_painting(paint_context()));
   EXPECT_TRUE(layer->needs_painting(paint_context()));
-  EXPECT_EQ(mock_layer->parent_cull_rect(), distant_bounds);
+  EXPECT_EQ(mock_layer->parent_cull_rect(), kEmptyRect);
   EXPECT_EQ(mock_layer->parent_matrix(), initial_matrix);
   EXPECT_EQ(mock_layer->parent_mutators(), std::vector({Mutator(layer_rrect)}));
 

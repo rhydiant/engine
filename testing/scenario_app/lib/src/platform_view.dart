@@ -50,6 +50,31 @@ class PlatformViewScenario extends Scenario with _BasePlatformViewScenarioMixin 
   }
 }
 
+/// A simple platform view.
+class NonFullScreenFlutterViewPlatformViewScenario extends Scenario
+    with _BasePlatformViewScenarioMixin {
+  /// Creates the PlatformView scenario.
+  ///
+  /// The [dispatcher] parameter must not be null.
+  NonFullScreenFlutterViewPlatformViewScenario(
+      PlatformDispatcher dispatcher, String text,
+      {this.id})
+      : assert(dispatcher != null),
+        super(dispatcher) {
+    createPlatformView(dispatcher, text, id);
+  }
+
+  /// The platform view identifier.
+  final int id;
+
+  @override
+  void onBeginFrame(Duration duration) {
+    final SceneBuilder builder = SceneBuilder();
+
+    finishBuilderByAddingPlatformViewAndPicture(builder, id);
+  }
+}
+
 /// A simple platform view with overlay that doesn't intersect with the platform view.
 class PlatformViewNoOverlayIntersectionScenario extends Scenario with _BasePlatformViewScenarioMixin {
   /// Creates the PlatformView scenario.
@@ -576,6 +601,23 @@ class PlatformViewForTouchIOSScenario extends Scenario
   void _secondFrame() {
     final SceneBuilder builder = SceneBuilder()..pushOffset(5, 5);
     finishBuilderByAddingPlatformViewAndPicture(builder, _viewId);
+  }
+}
+
+/// A simple platform view for testing platform view with a continuous texture layer.
+/// For example, it simulates a video being played.
+class PlatformViewWithContinuousTexture extends PlatformViewScenario {
+  /// Constructs a platform view with continuous texture layer.
+  PlatformViewWithContinuousTexture(PlatformDispatcher dispatcher, String text, { int id = 0 })
+      : super(dispatcher, text, id: id);
+
+  @override
+  void onBeginFrame(Duration duration) {
+    final SceneBuilder builder = SceneBuilder();
+
+    builder.addTexture(0, width: 300, height: 300, offset: const Offset(200, 200));
+
+    finishBuilderByAddingPlatformViewAndPicture(builder, id);
   }
 }
 

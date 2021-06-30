@@ -21,15 +21,17 @@ class PlatformViewAndroidJNIImpl final : public PlatformViewAndroidJNI {
   ~PlatformViewAndroidJNIImpl() override;
 
   void FlutterViewHandlePlatformMessage(
-      fml::RefPtr<flutter::PlatformMessage> message,
+      std::unique_ptr<flutter::PlatformMessage> message,
       int responseId) override;
 
   void FlutterViewHandlePlatformMessageResponse(
       int responseId,
       std::unique_ptr<fml::Mapping> data) override;
 
-  void FlutterViewUpdateSemantics(std::vector<uint8_t> buffer,
-                                  std::vector<std::string> strings) override;
+  void FlutterViewUpdateSemantics(
+      std::vector<uint8_t> buffer,
+      std::vector<std::string> strings,
+      std::vector<std::vector<uint8_t>> string_attribute_args) override;
 
   void FlutterViewUpdateCustomAccessibilityActions(
       std::vector<uint8_t> actions_buffer,
@@ -79,6 +81,8 @@ class PlatformViewAndroidJNIImpl final : public PlatformViewAndroidJNI {
       std::vector<std::string> supported_locales_data) override;
 
   double GetDisplayRefreshRate() override;
+
+  bool RequestDartDeferredLibrary(int loading_unit_id) override;
 
  private:
   // Reference to FlutterJNI object.

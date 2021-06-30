@@ -19,6 +19,10 @@
 #include "flutter/shell/platform/embedder/embedder_surface_gl.h"
 #endif
 
+#ifdef SHELL_ENABLE_METAL
+#include "flutter/shell/platform/embedder/embedder_surface_metal.h"
+#endif
+
 namespace flutter {
 
 class PlatformViewEmbedder final : public PlatformView {
@@ -28,7 +32,7 @@ class PlatformViewEmbedder final : public PlatformView {
   using UpdateSemanticsCustomActionsCallback =
       std::function<void(flutter::CustomAccessibilityActionUpdates actions)>;
   using PlatformMessageResponseCallback =
-      std::function<void(fml::RefPtr<flutter::PlatformMessage>)>;
+      std::function<void(std::unique_ptr<PlatformMessage>)>;
   using ComputePlatformResolvedLocaleCallback =
       std::function<std::unique_ptr<std::vector<std::string>>(
           const std::vector<std::string>& supported_locale_data)>;
@@ -63,6 +67,16 @@ class PlatformViewEmbedder final : public PlatformView {
       std::shared_ptr<EmbedderExternalViewEmbedder> external_view_embedder);
 #endif
 
+#ifdef SHELL_ENABLE_METAL
+  // Creates a platform view that sets up an metal rasterizer.
+  PlatformViewEmbedder(
+      PlatformView::Delegate& delegate,
+      flutter::TaskRunners task_runners,
+      std::unique_ptr<EmbedderSurfaceMetal> embedder_surface,
+      PlatformDispatchTable platform_dispatch_table,
+      std::shared_ptr<EmbedderExternalViewEmbedder> external_view_embedder);
+#endif
+
   ~PlatformViewEmbedder() override;
 
   // |PlatformView|
@@ -71,8 +85,7 @@ class PlatformViewEmbedder final : public PlatformView {
       flutter::CustomAccessibilityActionUpdates actions) override;
 
   // |PlatformView|
-  void HandlePlatformMessage(
-      fml::RefPtr<flutter::PlatformMessage> message) override;
+  void HandlePlatformMessage(std::unique_ptr<PlatformMessage> message) override;
 
  private:
   std::shared_ptr<EmbedderExternalViewEmbedder> external_view_embedder_;

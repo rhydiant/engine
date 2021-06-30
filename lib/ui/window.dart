@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// @dart = 2.10
+// @dart = 2.12
 part of dart.ui;
 
 /// A view into which a Flutter [Scene] is drawn.
@@ -517,7 +517,7 @@ class SingletonFlutterWindow extends FlutterWindow {
   ///
   /// {@macro dart.ui.window.accessorForwardWarning}
   ///
-  /// It's prefered to use [SchedulerBinding.addTimingsCallback] than to use
+  /// It's preferred to use [SchedulerBinding.addTimingsCallback] than to use
   /// [SingletonFlutterWindow.onReportTimings] directly because
   /// [SchedulerBinding.addTimingsCallback] allows multiple callbacks.
   ///
@@ -554,6 +554,15 @@ class SingletonFlutterWindow extends FlutterWindow {
   PointerDataPacketCallback? get onPointerDataPacket => platformDispatcher.onPointerDataPacket;
   set onPointerDataPacket(PointerDataPacketCallback? callback) {
     platformDispatcher.onPointerDataPacket = callback;
+  }
+
+  /// A callback that is invoked when key data is available.
+  ///
+  /// The framework invokes this callback in the same zone in which the
+  /// callback was set.
+  KeyDataCallback? get onKeyData => platformDispatcher.onKeyData;
+  set onKeyData(KeyDataCallback? callback) {
+    platformDispatcher.onKeyData = callback;
   }
 
   /// The route or path that the embedder requested when the application was
@@ -622,6 +631,15 @@ class SingletonFlutterWindow extends FlutterWindow {
   VoidCallback? get onSemanticsEnabledChanged => platformDispatcher.onSemanticsEnabledChanged;
   set onSemanticsEnabledChanged(VoidCallback? callback) {
     platformDispatcher.onSemanticsEnabledChanged = callback;
+  }
+
+  /// The [FrameData] object for the current frame.
+  FrameData get frameData => platformDispatcher.frameData;
+
+  /// A callback that is invoked when the window updates the [FrameData].
+  VoidCallback? get onFrameDataChanged => platformDispatcher.onFrameDataChanged;
+  set onFrameDataChanged(VoidCallback? callback) {
+    platformDispatcher.onFrameDataChanged = callback;
   }
 
   /// A callback that is invoked whenever the user requests an action to be
@@ -840,3 +858,16 @@ enum Brightness {
 ///   belonging to the application, including top level application windows like
 ///   this one.
 final SingletonFlutterWindow window = SingletonFlutterWindow._(0, PlatformDispatcher.instance);
+
+/// Additional data available on each flutter frame.
+class FrameData {
+  const FrameData._({this.frameNumber = -1});
+
+  /// The number of the current frame.
+  ///
+  /// This number monotonically increases, but doesn't necessarily
+  /// start at a particular value.
+  ///
+  /// If not provided, defaults to -1.
+  final int frameNumber;
+}

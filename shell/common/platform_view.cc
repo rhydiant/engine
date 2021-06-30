@@ -11,7 +11,6 @@
 #include "flutter/shell/common/rasterizer.h"
 #include "flutter/shell/common/shell.h"
 #include "flutter/shell/common/vsync_waiter_fallback.h"
-#include "third_party/skia/include/gpu/GrContextOptions.h"
 #include "third_party/skia/include/gpu/gl/GrGLInterface.h"
 
 namespace flutter {
@@ -32,7 +31,7 @@ std::unique_ptr<VsyncWaiter> PlatformView::CreateVSyncWaiter() {
 }
 
 void PlatformView::DispatchPlatformMessage(
-    fml::RefPtr<PlatformMessage> message) {
+    std::unique_ptr<PlatformMessage> message) {
   delegate_.OnPlatformViewDispatchPlatformMessage(std::move(message));
 }
 
@@ -42,9 +41,15 @@ void PlatformView::DispatchPointerDataPacket(
       pointer_data_packet_converter_.Convert(std::move(packet)));
 }
 
+void PlatformView::DispatchKeyDataPacket(std::unique_ptr<KeyDataPacket> packet,
+                                         KeyDataResponse callback) {
+  delegate_.OnPlatformViewDispatchKeyDataPacket(std::move(packet),
+                                                std::move(callback));
+}
+
 void PlatformView::DispatchSemanticsAction(int32_t id,
                                            SemanticsAction action,
-                                           std::vector<uint8_t> args) {
+                                           fml::MallocMapping args) {
   delegate_.OnPlatformViewDispatchSemanticsAction(id, action, std::move(args));
 }
 
@@ -89,7 +94,7 @@ void PlatformView::NotifyDestroyed() {
 }
 
 sk_sp<GrDirectContext> PlatformView::CreateResourceContext() const {
-  FML_DLOG(WARNING) << "This platform does not setup the resource "
+  FML_DLOG(WARNING) << "This platform does not set up the resource "
                        "context on the IO thread for async texture uploads.";
   return nullptr;
 }
@@ -109,7 +114,8 @@ fml::WeakPtr<PlatformView> PlatformView::GetWeakPtr() const {
 void PlatformView::UpdateSemantics(SemanticsNodeUpdates update,
                                    CustomAccessibilityActionUpdates actions) {}
 
-void PlatformView::HandlePlatformMessage(fml::RefPtr<PlatformMessage> message) {
+void PlatformView::HandlePlatformMessage(
+    std::unique_ptr<PlatformMessage> message) {
   if (auto response = message->response())
     response->CompleteEmpty();
 }
@@ -157,6 +163,23 @@ PlatformView::ComputePlatformResolvedLocales(
   std::unique_ptr<std::vector<std::string>> out =
       std::make_unique<std::vector<std::string>>();
   return out;
+}
+
+void PlatformView::RequestDartDeferredLibrary(intptr_t loading_unit_id) {}
+
+void PlatformView::LoadDartDeferredLibrary(
+    intptr_t loading_unit_id,
+    std::unique_ptr<const fml::Mapping> snapshot_data,
+    std::unique_ptr<const fml::Mapping> snapshot_instructions) {}
+
+void PlatformView::LoadDartDeferredLibraryError(intptr_t loading_unit_id,
+                                                const std::string error_message,
+                                                bool transient) {}
+
+void PlatformView::UpdateAssetResolverByType(
+    std::unique_ptr<AssetResolver> updated_asset_resolver,
+    AssetResolver::AssetResolverType type) {
+  delegate_.UpdateAssetResolverByType(std::move(updated_asset_resolver), type);
 }
 
 }  // namespace flutter

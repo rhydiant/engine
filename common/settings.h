@@ -40,8 +40,12 @@ class FrameTiming {
     return data_[phase] = value;
   }
 
+  uint64_t GetFrameNumber() const { return frame_number_; }
+  void SetFrameNumber(uint64_t frame_number) { frame_number_ = frame_number; }
+
  private:
   fml::TimePoint data_[kCount];
+  uint64_t frame_number_;
 };
 
 using TaskObserverAdd =
@@ -50,6 +54,9 @@ using TaskObserverRemove = std::function<void(intptr_t /* key */)>;
 using UnhandledExceptionCallback =
     std::function<bool(const std::string& /* error */,
                        const std::string& /* stack trace */)>;
+using LogMessageCallback =
+    std::function<void(const std::string& /* tag */,
+                       const std::string& /* message */)>;
 
 // TODO(26783): Deprecate all the "path" struct members in favor of the
 // callback that generates the mapping from these paths.
@@ -101,7 +108,8 @@ struct Settings {
   bool enable_checked_mode = false;
   bool start_paused = false;
   bool trace_skia = false;
-  std::string trace_allowlist;
+  std::vector<std::string> trace_allowlist;
+  std::vector<std::string> trace_skia_allowlist;
   bool trace_startup = false;
   bool trace_systrace = false;
   bool dump_skp_on_shader_compilation = false;
@@ -152,6 +160,9 @@ struct Settings {
   // Font settings
   bool use_test_fonts = false;
 
+  // Selects the SkParagraph implementation of the text layout engine.
+  bool enable_skparagraph = false;
+
   // All shells in the process share the same VM. The last shell to shutdown
   // should typically shut down the VM as well. However, applications depend on
   // the behavior of "warming-up" the VM by creating a shell that does not do
@@ -198,6 +209,11 @@ struct Settings {
   // managed thread and embedders must re-thread as necessary. Performing
   // blocking calls in this callback will cause applications to jank.
   UnhandledExceptionCallback unhandled_exception_callback;
+  // A callback given to the embedder to log print messages from the running
+  // Flutter application. This callback is made on an internal engine managed
+  // thread and embedders must re-thread if necessary. Performing blocking
+  // calls in this callback will cause applications to jank.
+  LogMessageCallback log_message_callback;
   bool enable_software_rendering = false;
   bool skia_deterministic_rendering_on_cpu = false;
   bool verbose_logging = false;

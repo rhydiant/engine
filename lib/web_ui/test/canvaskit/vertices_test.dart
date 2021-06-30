@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// @dart = 2.6
 import 'package:test/bootstrap/browser.dart';
 import 'package:test/test.dart';
 import 'package:ui/src/engine.dart';
@@ -16,9 +15,7 @@ void main() {
 
 void testMain() {
   group('Vertices', () {
-    setUpAll(() async {
-      await ui.webOnlyInitializePlatform();
-    });
+    setUpCanvasKitTest();
 
     test('can be constructed, drawn, and deleted', () {
       final CkVertices vertices = _testVertices();
@@ -31,7 +28,7 @@ void testMain() {
       canvas.drawVertices(
         vertices,
         ui.BlendMode.srcOver,
-        ui.Paint(),
+        CkPaint(),
       );
       vertices.delete();
     });
@@ -39,7 +36,7 @@ void testMain() {
   }, skip: isIosSafari);
 }
 
-ui.Vertices _testVertices() {
+CkVertices _testVertices() {
   return ui.Vertices(
     ui.VertexMode.triangles,
     <ui.Offset>[
@@ -58,5 +55,5 @@ ui.Vertices _testVertices() {
       ui.Color.fromRGBO(0, 0, 255, 1.0),
     ],
     indices: <int>[0, 1, 2],
-  );
+  ) as CkVertices;
 }

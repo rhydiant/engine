@@ -55,7 +55,7 @@ namespace flutter {
 // Certain fields are ignored in CATransform3D since SkMatrix is 3x3 and CATransform3D is 4x4.
 CATransform3D GetCATransform3DFromSkMatrix(const SkMatrix& matrix);
 
-// Reset the anchor of `layer` to match the tranform operation from flow.
+// Reset the anchor of `layer` to match the transform operation from flow.
 // The position of the `layer` should be unchanged after resetting the anchor.
 void ResetAnchor(CALayer* layer);
 
@@ -141,10 +141,11 @@ class FlutterPlatformViewsController {
       NSString* factoryId,
       FlutterPlatformViewGestureRecognizersBlockingPolicy gestureRecognizerBlockingPolicy);
 
-  void SetFrameSize(SkISize frame_size);
+  // Called at the beginning of each frame.
+  void BeginFrame(SkISize frame_size);
 
   // Indicates that we don't compisite any platform views or overlays during this frame.
-  // Also reverts the composition_order_ to its original state at the begining of the frame.
+  // Also reverts the composition_order_ to its original state at the beginning of the frame.
   void CancelFrame();
 
   void PrerollCompositeEmbeddedView(int view_id,
@@ -173,13 +174,7 @@ class FlutterPlatformViewsController {
   bool SubmitFrame(GrDirectContext* gr_context,
                    std::shared_ptr<IOSContext> ios_context,
                    std::unique_ptr<SurfaceFrame> frame,
-                   const std::shared_ptr<fml::SyncSwitch>& gpu_disable_sync_switch);
-
-  // Invoked at the very end of a frame.
-  // After invoking this method, nothing should happen on the current TaskRunner during the same
-  // frame.
-  void EndFrame(bool should_resubmit_frame,
-                fml::RefPtr<fml::RasterThreadMerger> raster_thread_merger);
+                   const std::shared_ptr<const fml::SyncSwitch>& gpu_disable_sync_switch);
 
   void OnMethodCall(FlutterMethodCall* call, FlutterResult& result);
 
@@ -308,6 +303,9 @@ class FlutterPlatformViewsController {
   bool SubmitFrameGpuSafe(GrDirectContext* gr_context,
                           std::shared_ptr<IOSContext> ios_context,
                           std::unique_ptr<SurfaceFrame> frame);
+
+  // Resets the state of the frame.
+  void ResetFrameState();
 
   FML_DISALLOW_COPY_AND_ASSIGN(FlutterPlatformViewsController);
 };

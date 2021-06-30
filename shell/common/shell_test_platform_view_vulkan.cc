@@ -5,6 +5,7 @@
 #include "flutter/shell/common/shell_test_platform_view_vulkan.h"
 
 #include "flutter/common/graphics/persistent_cache.h"
+#include "flutter/shell/common/context_options.h"
 #include "flutter/vulkan/vulkan_utilities.h"
 
 namespace flutter {
@@ -78,9 +79,9 @@ ShellTestPlatformViewVulkan::OffScreenSurface::OffScreenSurface(
       VK_MAKE_VERSION(1, 1, 0), true);
 
   if (!application_->IsValid() || !vk_->AreInstanceProcsSetup()) {
-    // Make certain the application instance was created and it setup the
+    // Make certain the application instance was created and it set up the
     // instance proc table entries.
-    FML_DLOG(ERROR) << "Instance proc addresses have not been setup.";
+    FML_DLOG(ERROR) << "Instance proc addresses have not been set up.";
     return;
   }
 
@@ -90,9 +91,9 @@ ShellTestPlatformViewVulkan::OffScreenSurface::OffScreenSurface(
 
   if (logical_device_ == nullptr || !logical_device_->IsValid() ||
       !vk_->AreDeviceProcsSetup()) {
-    // Make certain the device was created and it setup the device proc table
+    // Make certain the device was created and it set up the device proc table
     // entries.
-    FML_DLOG(ERROR) << "Device proc addresses have not been setup.";
+    FML_DLOG(ERROR) << "Device proc addresses have not been set up.";
     return;
   }
 
@@ -113,12 +114,8 @@ bool ShellTestPlatformViewVulkan::OffScreenSurface::CreateSkiaGrContext() {
     return false;
   }
 
-  GrContextOptions options;
-  if (PersistentCache::cache_sksl()) {
-    options.fShaderCacheStrategy = GrContextOptions::ShaderCacheStrategy::kSkSL;
-  }
-  PersistentCache::MarkStrategySet();
-  options.fPersistentCache = PersistentCache::GetCacheForProcess();
+  const auto options =
+      MakeDefaultContextOptions(ContextType::kRender, GrBackendApi::kVulkan);
 
   sk_sp<GrDirectContext> context =
       GrDirectContext::MakeVulkan(backend_context, options);

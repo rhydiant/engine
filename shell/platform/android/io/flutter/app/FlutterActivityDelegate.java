@@ -35,8 +35,8 @@ import io.flutter.view.FlutterView;
 import java.util.ArrayList;
 
 /**
- * Deprecated class that performs the actual work of tying Android {@link Activity} instances to
- * Flutter.
+ * Deprecated class that performs the actual work of tying Android {@link android.app.Activity}
+ * instances to Flutter.
  *
  * <p>This exists as a dedicated class (as opposed to being integrated directly into {@link
  * FlutterActivity}) to facilitate applications that don't wish to subclass {@code FlutterActivity}.
@@ -84,6 +84,8 @@ public final class FlutterActivityDelegate
     /**
      * Hook for subclasses to indicate that the {@code FlutterNativeView} returned by {@link
      * #createFlutterNativeView()} should not be destroyed when this activity is destroyed.
+     *
+     * @return Whether the FlutterNativeView is retained.
      */
     boolean retainFlutterNativeView();
   }
@@ -322,9 +324,6 @@ public final class FlutterActivityDelegate
     final int observatoryPort = intent.getIntExtra("observatory-port", 0);
     if (observatoryPort > 0) {
       args.add("--observatory-port=" + Integer.toString(observatoryPort));
-    }
-    if (intent.getBooleanExtra("disable-service-auth-codes", false)) {
-      args.add("--disable-service-auth-codes");
     }
     if (intent.getBooleanExtra("endless-trace-buffer", false)) {
       args.add("--endless-trace-buffer");

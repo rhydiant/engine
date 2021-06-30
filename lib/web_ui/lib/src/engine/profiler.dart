@@ -2,8 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// @dart = 2.12
-part of engine;
+import 'dart:async';
+import 'dart:html' as html;
+import 'dart:js_util' as js_util;
+
+import 'package:ui/ui.dart' as ui;
+import 'package:ui/src/engine.dart' show EnginePlatformDispatcher;
 
 /// A function that receives a benchmark [value] labeleb by [name].
 typedef OnBenchmark = void Function(String name, double value);
@@ -110,7 +114,7 @@ class Profiler {
 
 /// Whether we are collecting [ui.FrameTiming]s.
 bool get _frameTimingsEnabled {
-  return EnginePlatformDispatcher.instance._onReportTimings != null;
+  return EnginePlatformDispatcher.instance.onReportTimings != null;
 }
 
 /// Collects frame timings from frames.
@@ -134,7 +138,7 @@ int _rasterStartMicros = -1;
 int _rasterFinishMicros = -1;
 
 /// Records the vsync timestamp for this frame.
-void _frameTimingsOnVsync() {
+void frameTimingsOnVsync() {
   if (!_frameTimingsEnabled) {
     return;
   }
@@ -142,7 +146,7 @@ void _frameTimingsOnVsync() {
 }
 
 /// Records the time when the framework started building the frame.
-void _frameTimingsOnBuildStart() {
+void frameTimingsOnBuildStart() {
   if (!_frameTimingsEnabled) {
     return;
   }
@@ -150,7 +154,7 @@ void _frameTimingsOnBuildStart() {
 }
 
 /// Records the time when the framework finished building the frame.
-void _frameTimingsOnBuildFinish() {
+void frameTimingsOnBuildFinish() {
   if (!_frameTimingsEnabled) {
     return;
   }
@@ -171,7 +175,7 @@ void _frameTimingsOnBuildFinish() {
 ///
 /// CanvasKit captures everything because we control the rasterization
 /// process, so we know exactly when rasterization starts and ends.
-void _frameTimingsOnRasterStart() {
+void frameTimingsOnRasterStart() {
   if (!_frameTimingsEnabled) {
     return;
   }
@@ -182,7 +186,7 @@ void _frameTimingsOnRasterStart() {
 ///
 /// See [_frameTimingsOnRasterStart] for more details on what rasterization
 /// timings mean on the web.
-void _frameTimingsOnRasterFinish() {
+void frameTimingsOnRasterFinish() {
   if (!_frameTimingsEnabled) {
     return;
   }
@@ -217,4 +221,87 @@ void _frameTimingsOnRasterFinish() {
 ///   which can be bypassed in tests by setting certain browser options.
 int _nowMicros() {
   return (html.window.performance.now() * 1000).toInt();
+}
+
+/// Counts various events that take place while the app is running.
+///
+/// This class will slow down the app, and therefore should be disabled while
+/// benchmarking. For example, avoid using it in conjunction with [Profiler].
+class Instrumentation {
+  Instrumentation._() {
+    _checkInstrumentationEnabled();
+  }
+
+  /// Whether instrumentation is enabled.
+  ///
+  /// Check this value before calling any other methods in this class.
+  static bool get enabled => _enabled;
+  static set enabled(bool value) {
+    if (_enabled == value) {
+      return;
+    }
+
+    if (!value) {
+      _instance._counters.clear();
+      _instance._printTimer = null;
+    }
+
+    _enabled = value;
+  }
+  static bool _enabled = const bool.fromEnvironment(
+    'FLUTTER_WEB_ENABLE_INSTRUMENTATION',
+    defaultValue: false,
+  );
+
+  /// Returns the singleton that provides instrumentation API.
+  static Instrumentation get instance {
+    _checkInstrumentationEnabled();
+    return _instance;
+  }
+
+  static late final Instrumentation _instance = Instrumentation._();
+
+  static void _checkInstrumentationEnabled() {
+    if (!enabled) {
+      throw StateError(
+        'Cannot use Instrumentation unless it is enabled. '
+        'You can enable it by setting the `FLUTTER_WEB_ENABLE_INSTRUMENTATION` '
+        'environment variable to true, or by passing '
+        '--dart-define=FLUTTER_WEB_ENABLE_INSTRUMENTATION=true to the flutter '
+        'tool.',
+      );
+    }
+  }
+
+  Map<String, int> get debugCounters => _counters;
+  final Map<String, int> _counters = <String, int>{};
+
+  Timer? get debugPrintTimer => _printTimer;
+  Timer? _printTimer;
+
+  /// Increments the count of a particular event by one.
+  void incrementCounter(String event) {
+    _checkInstrumentationEnabled();
+    final int currentCount = _counters[event] ?? 0;
+    _counters[event] = currentCount + 1;
+    _printTimer ??= Timer(
+      const Duration(seconds: 2),
+      () {
+        if (_printTimer == null || !_enabled) {
+          return;
+        }
+        final StringBuffer message = StringBuffer('Engine counters:\n');
+        // Entries are sorted for readability and testability.
+        final List<MapEntry<String, int>> entries = _counters.entries.toList()
+          ..sort((MapEntry<String, int> a, MapEntry<String, int> b) {
+            return a.key.compareTo(b.key);
+          });
+        for (MapEntry<String, int> entry in entries) {
+          message.writeln('  ${entry.key}: ${entry.value}');
+        }
+        print(message);
+        _printTimer = null;
+      },
+    );
+  }
 }

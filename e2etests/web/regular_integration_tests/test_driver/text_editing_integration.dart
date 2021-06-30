@@ -2,15 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// TODO(yjbanov): this depends on integration_test that's not null-safe yet
+//                https://github.com/flutter/flutter/issues/84014
+// @dart=2.6
+
 import 'dart:html';
 import 'dart:js_util' as js_util;
 import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:regular_integration_tests/text_editing_main.dart' as app;
-import 'package:flutter/material.dart';
-
 import 'package:integration_test/integration_test.dart';
+
+import 'package:regular_integration_tests/common.dart';
+import 'package:regular_integration_tests/text_editing_main.dart' as app;
 
 void main() {
   final IntegrationTestWidgetsFlutterBinding binding =
@@ -44,7 +49,13 @@ void main() {
     // DOM element's value also changes.
     expect(input.value, 'New Value');
 
-    await binding.takeScreenshot('focused_text_field');
+    // Firefox can't make up its mind about what the screenshot should
+    // look like between LUCI and local.
+    //
+    // https://github.com/flutter/flutter/issues/73382
+    if (!isFirefox) {
+      await binding.takeScreenshot('focused_text_field');
+    }
   });
 
   testWidgets('Input field with no initial value works',

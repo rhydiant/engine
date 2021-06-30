@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// @dart = 2.6
 import 'dart:async';
 import 'dart:html' as html;
 
@@ -22,7 +21,7 @@ void main() {
 }
 
 void testMain() {
-  PersistedPlatformView view;
+  late PersistedPlatformView view;
 
   group('PersistedPlatformView', () {
     setUp(() async {
@@ -65,6 +64,15 @@ void testMain() {
       test('returns false when other view is not a PlatformView', () {
         final anyView = PersistedOpacity(null, 1, Offset(0, 0))..build();
         expect(view.canUpdateAsMatch(anyView), isFalse);
+      });
+    });
+
+    group('createElement', () {
+      test('creates slot element that can receive pointer events', () {
+        final element = view.createElement();
+
+        expect(element.tagName, equalsIgnoringCase('flt-platform-view-slot'));
+        expect(element.style.pointerEvents, 'auto');
       });
     });
   });

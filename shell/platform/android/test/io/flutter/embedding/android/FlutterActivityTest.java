@@ -4,6 +4,7 @@ import static io.flutter.embedding.android.FlutterActivityLaunchConfigs.HANDLE_D
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -12,15 +13,20 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.robolectric.Shadows.shadowOf;
 
+import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.lifecycle.DefaultLifecycleObserver;
 import androidx.lifecycle.LifecycleOwner;
+import io.flutter.FlutterInjector;
+import io.flutter.TestUtils;
 import io.flutter.embedding.android.FlutterActivityLaunchConfigs.BackgroundMode;
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.embedding.engine.FlutterEngineCache;
@@ -48,11 +54,29 @@ public class FlutterActivityTest {
   @Before
   public void setUp() {
     GeneratedPluginRegistrant.clearRegisteredEngines();
+    FlutterJNI mockFlutterJNI = mock(FlutterJNI.class);
+    when(mockFlutterJNI.isAttached()).thenReturn(true);
+    FlutterJNI.Factory mockFlutterJNIFactory = mock(FlutterJNI.Factory.class);
+    when(mockFlutterJNIFactory.provideFlutterJNI()).thenReturn(mockFlutterJNI);
+    FlutterInjector.setInstance(
+        new FlutterInjector.Builder().setFlutterJNIFactory(mockFlutterJNIFactory).build());
   }
 
   @After
   public void tearDown() {
     GeneratedPluginRegistrant.clearRegisteredEngines();
+    FlutterInjector.reset();
+  }
+
+  @Test
+  public void flutterViewHasId() {
+    Intent intent = FlutterActivity.createDefaultIntent(RuntimeEnvironment.application);
+    ActivityController<FlutterActivity> activityController =
+        Robolectric.buildActivity(FlutterActivity.class, intent);
+    FlutterActivity activity = activityController.get();
+
+    activity.onCreate(null);
+    assertNotNull(activity.findViewById(FlutterActivity.FLUTTER_VIEW_ID));
   }
 
   @Test
@@ -211,12 +235,14 @@ public class FlutterActivityTest {
 
   @Test
   public void itRegistersPluginsAtConfigurationTime() {
-    FlutterActivity activity =
-        Robolectric.buildActivity(FlutterActivityWithProvidedEngine.class).get();
-    activity.onCreate(null);
+    Intent intent = FlutterActivity.createDefaultIntent(RuntimeEnvironment.application);
+    ActivityController<FlutterActivity> activityController =
+        Robolectric.buildActivity(FlutterActivity.class, intent);
+    FlutterActivity activity = activityController.get();
 
-    assertTrue(GeneratedPluginRegistrant.getRegisteredEngines().isEmpty());
-    activity.configureFlutterEngine(activity.getFlutterEngine());
+    // This calls onAttach on FlutterActivityAndFragmentDelegate and subsequently
+    // configureFlutterEngine which registers the plugins.
+    activity.onCreate(null);
 
     List<FlutterEngine> registeredEngines = GeneratedPluginRegistrant.getRegisteredEngines();
     assertEquals(1, registeredEngines.size());
@@ -249,9 +275,16 @@ public class FlutterActivityTest {
     verify(mockDelegate, times(1)).onDetach();
 
     flutterActivity.onStop();
-    flutterActivity.onDestroy();
-
     verify(mockDelegate, never()).onStop();
+
+    // Simulate the disconnected activity resuming again.
+    flutterActivity.onStart();
+    flutterActivity.onResume();
+    // Shouldn't send more events to the delegates as before and shouldn't crash.
+    verify(mockDelegate, times(1)).onStart();
+    verify(mockDelegate, times(1)).onResume();
+
+    flutterActivity.onDestroy();
     // 1 time same as before.
     verify(mockDelegate, times(1)).onDestroyView();
     verify(mockDelegate, times(1)).onDetach();
@@ -275,6 +308,88 @@ public class FlutterActivityTest {
         "Expected FakeFlutterPlugin onCreateCalled to be true", fakeFlutterPlugin.onCreateCalled);
   }
 
+  @Test
+  public void itDoesNotRegisterPluginsTwiceWhenUsingACachedEngine() {
+    Intent intent =
+        new Intent(RuntimeEnvironment.application, FlutterActivityWithProvidedEngine.class);
+    ActivityController<FlutterActivityWithProvidedEngine> activityController =
+        Robolectric.buildActivity(FlutterActivityWithProvidedEngine.class, intent);
+    activityController.create();
+    FlutterActivityWithProvidedEngine flutterActivity = activityController.get();
+    flutterActivity.configureFlutterEngine(flutterActivity.getFlutterEngine());
+
+    List<FlutterEngine> registeredEngines = GeneratedPluginRegistrant.getRegisteredEngines();
+    // This might cause the plugins to be registered twice, once by the FlutterEngine constructor,
+    // and once by the default FlutterActivity.configureFlutterEngine implementation.
+    // Test that it doesn't happen.
+    assertEquals(1, registeredEngines.size());
+  }
+
+  @Test
+  public void itDoesNotCrashWhenSplashScreenMetadataIsNotDefined() {
+    Intent intent = FlutterActivity.createDefaultIntent(RuntimeEnvironment.application);
+    ActivityController<FlutterActivity> activityController =
+        Robolectric.buildActivity(FlutterActivity.class, intent);
+    FlutterActivity flutterActivity = activityController.get();
+
+    // We never supplied the metadata to the robolectric activity info so it doesn't exist.
+    SplashScreen splashScreen = flutterActivity.provideSplashScreen();
+    // It should quietly return a null and not crash.
+    assertNull(splashScreen);
+  }
+
+  @Test
+  @Config(shadows = {SplashShadowResources.class})
+  public void itLoadsSplashScreenDrawable() throws PackageManager.NameNotFoundException {
+    TestUtils.setApiVersion(19);
+    Intent intent = FlutterActivity.createDefaultIntent(RuntimeEnvironment.application);
+    ActivityController<FlutterActivity> activityController =
+        Robolectric.buildActivity(FlutterActivity.class, intent);
+    FlutterActivity flutterActivity = activityController.get();
+
+    // Inject splash screen drawable resource id in the metadata.
+    PackageManager pm = RuntimeEnvironment.application.getPackageManager();
+    ActivityInfo activityInfo =
+        pm.getActivityInfo(flutterActivity.getComponentName(), PackageManager.GET_META_DATA);
+    activityInfo.metaData = new Bundle();
+    activityInfo.metaData.putInt(
+        FlutterActivityLaunchConfigs.SPLASH_SCREEN_META_DATA_KEY,
+        SplashShadowResources.SPLASH_DRAWABLE_ID);
+    shadowOf(RuntimeEnvironment.application.getPackageManager()).addOrUpdateActivity(activityInfo);
+
+    // It should load the drawable.
+    SplashScreen splashScreen = flutterActivity.provideSplashScreen();
+    assertNotNull(splashScreen);
+  }
+
+  @Test
+  @Config(shadows = {SplashShadowResources.class})
+  @TargetApi(21) // Theme references in drawables requires API 21+
+  public void itLoadsThemedSplashScreenDrawable() throws PackageManager.NameNotFoundException {
+    // A drawable with theme references can be parsed only if the app theme is supplied
+    // in getDrawable methods. This test verifies it by fetching a (fake) themed drawable.
+    // On failure, a Resource.NotFoundException will ocurr.
+    TestUtils.setApiVersion(21);
+    Intent intent = FlutterActivity.createDefaultIntent(RuntimeEnvironment.application);
+    ActivityController<FlutterActivity> activityController =
+        Robolectric.buildActivity(FlutterActivity.class, intent);
+    FlutterActivity flutterActivity = activityController.get();
+
+    // Inject themed splash screen drawable resource id in the metadata.
+    PackageManager pm = RuntimeEnvironment.application.getPackageManager();
+    ActivityInfo activityInfo =
+        pm.getActivityInfo(flutterActivity.getComponentName(), PackageManager.GET_META_DATA);
+    activityInfo.metaData = new Bundle();
+    activityInfo.metaData.putInt(
+        FlutterActivityLaunchConfigs.SPLASH_SCREEN_META_DATA_KEY,
+        SplashShadowResources.THEMED_SPLASH_DRAWABLE_ID);
+    shadowOf(RuntimeEnvironment.application.getPackageManager()).addOrUpdateActivity(activityInfo);
+
+    // It should load the drawable.
+    SplashScreen splashScreen = flutterActivity.provideSplashScreen();
+    assertNotNull(splashScreen);
+  }
+
   static class FlutterActivityWithProvidedEngine extends FlutterActivity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -286,10 +401,11 @@ public class FlutterActivityTest {
     @Override
     public FlutterEngine provideFlutterEngine(@NonNull Context context) {
       FlutterJNI flutterJNI = mock(FlutterJNI.class);
+      FlutterLoader flutterLoader = mock(FlutterLoader.class);
       when(flutterJNI.isAttached()).thenReturn(true);
+      when(flutterLoader.automaticallyRegisterPlugins()).thenReturn(true);
 
-      return new FlutterEngine(
-          context, mock(FlutterLoader.class), flutterJNI, new String[] {}, false);
+      return new FlutterEngine(context, flutterLoader, flutterJNI, new String[] {}, true);
     }
   }
 

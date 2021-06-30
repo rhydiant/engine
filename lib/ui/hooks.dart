@@ -4,8 +4,8 @@
 
 // TODO(dnfield): Remove unused_import ignores when https://github.com/dart-lang/sdk/issues/35164 is resolved.
 
-// @dart = 2.10
 
+// @dart = 2.12
 part of dart.ui;
 
 @pragma('vm:entry-point')
@@ -98,14 +98,21 @@ void _dispatchPointerDataPacket(ByteData packet) {
 
 @pragma('vm:entry-point')
 // ignore: unused_element
+void _dispatchKeyData(ByteData packet, int responseId) {
+  PlatformDispatcher.instance._dispatchKeyData(packet, responseId);
+}
+
+@pragma('vm:entry-point')
+// ignore: unused_element
 void _dispatchSemanticsAction(int id, int action, ByteData? args) {
   PlatformDispatcher.instance._dispatchSemanticsAction(id, action, args);
 }
 
 @pragma('vm:entry-point')
 // ignore: unused_element
-void _beginFrame(int microseconds) {
+void _beginFrame(int microseconds, int frameNumber) {
   PlatformDispatcher.instance._beginFrame(microseconds);
+  PlatformDispatcher.instance._updateFrameData(frameNumber);
 }
 
 @pragma('vm:entry-point')
@@ -149,7 +156,7 @@ void _invoke(void Function()? callback, Zone zone) {
     return;
   }
 
-  assert(zone != null); // ignore: unnecessary_null_comparison
+  assert(zone != null);
 
   if (identical(zone, Zone.current)) {
     callback();
@@ -168,7 +175,7 @@ void _invoke1<A>(void Function(A a)? callback, Zone zone, A arg) {
     return;
   }
 
-  assert(zone != null); // ignore: unnecessary_null_comparison
+  assert(zone != null);
 
   if (identical(zone, Zone.current)) {
     callback(arg);
@@ -187,7 +194,7 @@ void _invoke2<A1, A2>(void Function(A1 a1, A2 a2)? callback, Zone zone, A1 arg1,
     return;
   }
 
-  assert(zone != null); // ignore: unnecessary_null_comparison
+  assert(zone != null);
 
   if (identical(zone, Zone.current)) {
     callback(arg1, arg2);
@@ -208,7 +215,7 @@ void _invoke3<A1, A2, A3>(void Function(A1 a1, A2 a2, A3 a3)? callback, Zone zon
     return;
   }
 
-  assert(zone != null); // ignore: unnecessary_null_comparison
+  assert(zone != null);
 
   if (identical(zone, Zone.current)) {
     callback(arg1, arg2, arg3);
@@ -217,4 +224,45 @@ void _invoke3<A1, A2, A3>(void Function(A1 a1, A2 a2, A3 a3)? callback, Zone zon
       callback(arg1, arg2, arg3);
     });
   }
+}
+
+bool _isLoopback(String host) {
+  if (host.isEmpty) {
+    return false;
+  }
+  if ('localhost' == host) {
+    return true;
+  }
+  try {
+    return InternetAddress(host).isLoopback;
+  } on ArgumentError {
+    return false;
+  }
+}
+
+/// Loopback connections are always allowed.
+/// Zone override with 'flutter.io.allow_http' takes first priority.
+/// If zone override is not provided, engine setting is checked.
+@pragma('vm:entry-point')
+// ignore: unused_element
+void Function(Uri) _getHttpConnectionHookClosure(bool mayInsecurelyConnectToAllDomains) {
+  return (Uri uri) {
+      if (_isLoopback(uri.host)) {
+        return;
+      }
+      final dynamic zoneOverride = Zone.current[#flutter.io.allow_http];
+      if (zoneOverride == true) {
+        return;
+      }
+      if (zoneOverride == false && uri.isScheme('http')) {
+        // Going to throw
+      } else if (mayInsecurelyConnectToAllDomains || uri.isScheme('https')) {
+        // In absence of zone override, if engine setting allows the connection
+        // or if connection is to `https`, allow the connection.
+        return;
+      }
+      throw UnsupportedError(
+        'Non-https connection "$uri" is not supported by the platform. '
+        'Refer to https://flutter.dev/docs/release/breaking-changes/network-policy-ios-android.');
+    };
 }

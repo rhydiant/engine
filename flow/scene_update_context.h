@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "flutter/flow/embedded_views.h"
+#include "flutter/flow/view_holder.h"
 #include "flutter/fml/logging.h"
 #include "flutter/fml/macros.h"
 #include "third_party/skia/include/core/SkRect.h"
@@ -119,14 +120,14 @@ class SceneUpdateContext : public flutter::ExternalViewEmbedder {
     std::vector<Layer*> layers;
   };
 
+  using ViewCallback = std::function<void()>;
+
   SceneUpdateContext(std::string debug_label,
                      fuchsia::ui::views::ViewToken view_token,
                      scenic::ViewRefPair view_ref_pair,
                      SessionWrapper& session,
                      bool intercept_all_input = false);
   ~SceneUpdateContext() = default;
-
-  scenic::ContainerNode& root_node() { return root_node_; }
 
   // The cumulative alpha value based on all the parent OpacityLayers.
   void set_alphaf(float alpha) { alpha_ = alpha; }
@@ -139,7 +140,7 @@ class SceneUpdateContext : public flutter::ExternalViewEmbedder {
   void EnableWireframe(bool enable);
 
   // Reset state for a new frame.
-  void Reset();
+  void Reset(const SkISize& frame_size, float device_pixel_ratio);
 
   // |ExternalViewEmbedder|
   SkCanvas* GetRootCanvas() override { return nullptr; }
@@ -169,49 +170,24 @@ class SceneUpdateContext : public flutter::ExternalViewEmbedder {
     return nullptr;
   }
 
-  void CreateView(int64_t view_id, bool hit_testable, bool focusable);
-  void UpdateView(int64_t view_id, bool hit_testable, bool focusable);
-  void DestroyView(int64_t view_id);
+  // View manipulation.
+  void CreateView(int64_t view_id,
+                  ViewCallback on_view_created,
+                  ViewHolder::ViewIdCallback on_view_bound,
+                  bool hit_testable,
+                  bool focusable);
+  void DestroyView(int64_t view_id,
+                   ViewHolder::ViewIdCallback on_view_destroyed);
+  void UpdateView(int64_t view_id,
+                  const SkRect& view_occlusion_hint,
+                  bool hit_testable,
+                  bool focusable);
   void UpdateView(int64_t view_id,
                   const SkPoint& offset,
                   const SkSize& size,
                   std::optional<bool> override_hit_testable = std::nullopt);
 
  private:
-  // Helper class for setting up an invisible rectangle to catch all input.
-  // Rejected input will then be re-injected into a suitable platform view
-  // controlled by this Engine instance.
-  class InputInterceptor {
-   public:
-    InputInterceptor(scenic::Session* session)
-        : opacity_node_(session), shape_node_(session) {
-      opacity_node_.SetLabel("Flutter::InputInterceptor");
-      opacity_node_.SetOpacity(0.f);
-
-      // Set the shape node to capture all input. Any unwanted input will be
-      // reinjected.
-      shape_node_.SetHitTestBehavior(
-          fuchsia::ui::gfx::HitTestBehavior::kDefault);
-      shape_node_.SetSemanticVisibility(false);
-
-      opacity_node_.AddChild(shape_node_);
-    }
-
-    void UpdateDimensions(scenic::Session* session,
-                          float width,
-                          float height,
-                          float elevation) {
-      opacity_node_.SetTranslation(width * 0.5f, height * 0.5f, elevation);
-      shape_node_.SetShape(scenic::Rectangle(session, width, height));
-    }
-
-    const scenic::Node& node() { return opacity_node_; }
-
-   private:
-    scenic::OpacityNodeHACK opacity_node_;
-    scenic::ShapeNode shape_node_;
-  };
-
   void CreateFrame(scenic::EntityNode& entity_node,
                    const SkRRect& rrect,
                    SkColor color,
@@ -222,7 +198,9 @@ class SceneUpdateContext : public flutter::ExternalViewEmbedder {
   SessionWrapper& session_;
 
   scenic::View root_view_;
-  scenic::EntityNode root_node_;
+  scenic::EntityNode metrics_node_;
+  scenic::EntityNode layer_tree_node_;
+  std::optional<scenic::ShapeNode> input_interceptor_node_;
 
   std::vector<PaintTask> paint_tasks_;
 
@@ -233,9 +211,6 @@ class SceneUpdateContext : public flutter::ExternalViewEmbedder {
 
   float next_elevation_ = 0.f;
   float alpha_ = 1.f;
-
-  std::optional<InputInterceptor> input_interceptor_;
-  bool intercept_all_input_ = false;
 
   FML_DISALLOW_COPY_AND_ASSIGN(SceneUpdateContext);
 };
