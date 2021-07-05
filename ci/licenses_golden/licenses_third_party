@@ -1,4 +1,4 @@
-Signature: fbc523c05116d35fac53895745658332
+Signature: 9a3e34708bfe45e4f1e3bda63beeb9c1
 
 UNUSED LICENSES:
 
@@ -9909,6 +9909,8 @@ FILE: ../../../third_party/dart/benchmarks/MapLookup/dart/maps.dart
 FILE: ../../../third_party/dart/benchmarks/MapLookup/dart2/MapLookup.dart
 FILE: ../../../third_party/dart/benchmarks/MapLookup/dart2/maps.dart
 FILE: ../../../third_party/dart/benchmarks/MapLookup/generate_maps.dart
+FILE: ../../../third_party/dart/benchmarks/ObjectHash/dart/ObjectHash.dart
+FILE: ../../../third_party/dart/benchmarks/ObjectHash/dart2/ObjectHash.dart
 FILE: ../../../third_party/dart/benchmarks/SDKArtifactSizes/dart/SDKArtifactSizes.dart
 FILE: ../../../third_party/dart/benchmarks/SDKArtifactSizes/dart2/SDKArtifactSizes.dart
 FILE: ../../../third_party/dart/benchmarks/SendPort/dart/SendPort.dart
